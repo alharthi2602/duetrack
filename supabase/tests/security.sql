@@ -1,0 +1,10 @@
+begin;
+create extension if not exists pgtap with schema extensions;
+select plan(5);
+select has_table('public','records','Records exist');
+select ok((select relrowsecurity from pg_class where oid='public.records'::regclass),'Record RLS enabled');
+select ok(not has_table_privilege('authenticated','public.records','UPDATE'),'Clients cannot bypass version checks');
+select ok(not has_table_privilege('anon','public.records','SELECT'),'Anonymous records are private');
+select ok((select not public from storage.buckets where id='receipts'),'Receipt bucket is private');
+select * from finish();
+rollback;
