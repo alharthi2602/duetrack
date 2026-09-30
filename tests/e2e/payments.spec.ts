@@ -142,3 +142,59 @@ test("sign out is visible and clears the device account cache", async ({
     }),
   ).toBeUndefined();
 });
+
+test("payment type names accept spaces and numbers and persist after reload", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Explore the local preview" }).click();
+  const openTypes = () =>
+    page
+      .getByRole("button", {
+        name: page.viewportSize()!.width < 800 ? "Types" : "Payment types",
+        exact: true,
+      })
+      .click();
+  await openTypes();
+  for (const name of ["Bin Ghatti 3", "BinGhatti3", "test"]) {
+    await page.getByRole("button", { name: "Add type", exact: true }).click();
+    await page.getByLabel("Payment type name", { exact: true }).fill(name);
+    await page.getByRole("button", { name: "Save type", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: `Rename ${name}`, exact: true }),
+    ).toBeVisible();
+  }
+  for (const [before, after] of [
+    ["test", "test123"],
+    ["test123", "Bin Ghatti 3"],
+    ["BinGhatti3", "BinGhatti 3 renamed"],
+  ]) {
+    await page
+      .getByRole("button", { name: `Rename ${before}`, exact: true })
+      .click();
+    await page.getByLabel("Payment type name", { exact: true }).fill(after);
+    await page.getByRole("button", { name: "Save type", exact: true }).click();
+    await expect(
+      page
+        .getByRole("button", { name: `Rename ${after}`, exact: true })
+        .first(),
+    ).toBeVisible();
+  }
+  await page.reload();
+  await page.getByRole("button", { name: "Explore the local preview" }).click();
+  await openTypes();
+  await expect(
+    page.getByRole("button", { name: "Rename Bin Ghatti 3", exact: true }),
+  ).toHaveCount(2);
+  await page.getByRole("button", { name: "Add type", exact: true }).click();
+  await page.getByLabel("Payment type name", { exact: true }).fill("   ");
+  await page.getByRole("button", { name: "Save type", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Enter a payment type name",
+  );
+  await page
+    .getByLabel("Payment type name", { exact: true })
+    .fill("a".repeat(61));
+  await page.getByRole("button", { name: "Save type", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("60 characters");
+});

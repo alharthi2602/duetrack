@@ -53,6 +53,23 @@ beforeAll(async () => {
 }, 30000);
 afterAll(async () => await db.close());
 describe.sequential("PostgreSQL migration and authorization", () => {
+  it("accepts names containing spaces and digits for creation and renaming", async () => {
+    await user(alice);
+    const record = crypto.randomUUID();
+    let version = 0;
+    for (const name of [
+      "Bin Ghatti 3",
+      "BinGhatti3",
+      "test",
+      "test123",
+      "Bin Ghatti 3",
+    ]) {
+      const result = await change(record, "type", { name, order: 9 }, version);
+      expect(result.row.data.name).toBe(name);
+      version = result.row.version;
+    }
+  });
+
   it("creates owner-scoped types and payments", async () => {
     await user(alice);
     expect(

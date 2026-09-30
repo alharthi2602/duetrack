@@ -35,6 +35,7 @@ import {
   sorted,
   errorMessage,
 } from "../payments/model";
+import { PaymentTypeForm } from "./PaymentTypeForm";
 import { PaymentForm } from "../components/PaymentForm";
 import { receipt } from "../attachments/service";
 import { useModal } from "../components/useModal";
@@ -108,6 +109,7 @@ export function Dashboard({
     [filters, setFilters] = useState(false),
     [form, setForm] = useState<Row | null | undefined>(undefined),
     [details, setDetails] = useState<Row | null>(null),
+    [typeEditor, setTypeEditor] = useState<Row | null | undefined>(undefined),
     [panel, setPanel] = useState(""),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
@@ -117,10 +119,20 @@ export function Dashboard({
     ),
     [busy, setBusy] = useState(false),
     [offlineFiles, setOfflineFiles] = useState<Set<string>>(new Set());
-  useModal(form !== undefined ? "form" : details ? "details" : false, () => {
-    setForm(undefined);
-    setDetails(null);
-  });
+  useModal(
+    form !== undefined
+      ? "form"
+      : details
+        ? "details"
+        : typeEditor !== undefined
+          ? "type"
+          : false,
+    () => {
+      setForm(undefined);
+      setDetails(null);
+      setTypeEditor(undefined);
+    },
+  );
   useEffect(() => {
     const update = () => setOffline(!navigator.onLine);
     window.addEventListener("online", update);
@@ -640,24 +652,7 @@ export function Dashboard({
               <button
                 className="primary"
                 disabled={a.syncing}
-                onClick={() => {
-                  const name = prompt("New payment type name");
-                  if (name?.trim())
-                    void act(() =>
-                      a.change([
-                        {
-                          id: crypto.randomUUID(),
-                          kind: "type",
-                          version: 0,
-                          deleted: false,
-                          data: {
-                            name: name.trim().slice(0, 60),
-                            order: types.length,
-                          },
-                        },
-                      ]),
-                    );
-                }}
+                onClick={() => setTypeEditor(null)}
               >
                 <Plus size={18} />
                 Add type
@@ -692,11 +687,7 @@ export function Dashboard({
                   <button
                     disabled={a.syncing}
                     aria-label={`Rename ${t.data.name}`}
-                    onClick={() => {
-                      const name = prompt("Rename payment type", t.data.name);
-                      if (name?.trim())
-                        void act(() => a.change([renameType(t, name)]));
-                    }}
+                    onClick={() => setTypeEditor(t)}
                   >
                     <Pencil size={18} />
                   </button>
@@ -1019,6 +1010,35 @@ export function Dashboard({
           Settings
         </button>
       </nav>
+      {typeEditor !== undefined && (
+        <PaymentTypeForm
+          name={typeEditor?.data.name}
+          syncing={a.syncing}
+          onClose={() => setTypeEditor(undefined)}
+          onSave={async (name) => {
+            if (typeEditor) {
+              const latest = a.state.rows.find(
+                (r) => r.id === typeEditor.id && !r.deleted,
+              );
+              if (!latest)
+                throw Error(
+                  "This type was deleted on another device. Close this form and add a new type.",
+                );
+              await a.change([renameType(latest, name)]);
+            } else {
+              await a.change([
+                {
+                  id: crypto.randomUUID(),
+                  kind: "type",
+                  version: 0,
+                  deleted: false,
+                  data: { name, order: types.length },
+                },
+              ]);
+            }
+          }}
+        />
+      )}
       {form !== undefined && (
         <PaymentForm
           row={form || undefined}
