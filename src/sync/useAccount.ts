@@ -11,6 +11,7 @@ import {
 } from "./store";
 import { synchronize, fetchRows } from "./engine";
 import { occurrenceId, replenish } from "../recurrence/rules";
+import { accountOperations } from "./operations";
 import { defaults } from "../settings/preferences";
 export function useAccount(owner: string) {
   const [state, setState] = useState<Snapshot>({ rows: [], pending: [] });
@@ -21,6 +22,9 @@ export function useAccount(owner: string) {
     [error, setError] = useState(""),
     [progress, setProgress] = useState(0);
   const mounted = useRef(true);
+  const operations = useRef(accountOperations());
+  const initialized = useRef(false);
+  const closing = useRef(false);
   const demo = owner === "demo";
   async function commit(s: Snapshot) {
     if (!mounted.current) return;
@@ -33,21 +37,34 @@ export function useAccount(owner: string) {
     setState(s);
   }
   async function sync() {
-    if (busy.current || !navigator.onLine || demo) return;
+    if (
+      busy.current ||
+      !initialized.current ||
+      closing.current ||
+      !navigator.onLine ||
+      demo
+    )
+      return;
     busy.current = true;
     setSyncing(true);
     setError("");
     try {
-      let next = await synchronize(owner, current.current, setProgress);
-      if (!next.pending.length) {
-        const preferences =
-          next.rows.find((r) => r.kind === "preferences" && !r.deleted)?.data ||
-          defaults;
-        for (const r of await replenish(next.rows, today(preferences.timezone)))
-          next = queue(next, r);
-      }
-      await commit(next);
-      if (mounted.current) await cleanLocalFiles(owner, next.rows);
+      await operations.current(async () => {
+        if (!mounted.current || closing.current) return;
+        let next = await synchronize(owner, current.current, setProgress);
+        if (!next.pending.length) {
+          const preferences =
+            next.rows.find((r) => r.kind === "preferences" && !r.deleted)
+              ?.data || defaults;
+          for (const r of await replenish(
+            next.rows,
+            today(preferences.timezone),
+          ))
+            next = queue(next, r);
+        }
+        await commit(next);
+        if (mounted.current) await cleanLocalFiles(owner, next.rows);
+      });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -57,11 +74,15 @@ export function useAccount(owner: string) {
     }
   }
   async function change(rows: Row[]) {
-    if (busy.current) throw Error("Please wait until synchronization finishes");
-    let s = current.current;
-    for (const r of rows) s = queue(s, validateRow(r));
-    if (demo) s = { rows: s.rows, pending: [] };
-    await commit(s);
+    const validated = rows.map(validateRow);
+    await operations.current(async () => {
+      if (!mounted.current || closing.current)
+        throw Error("The account is signing out. Please sign in again.");
+      let s = current.current;
+      for (const r of validated) s = queue(s, r);
+      if (demo) s = { rows: s.rows, pending: [] };
+      await commit(s);
+    });
     void sync();
   }
   useEffect(() => {
@@ -96,6 +117,7 @@ export function useAccount(owner: string) {
           current.current = s;
           setState(s);
         }
+        initialized.current = true;
         setReady(true);
         void sync();
       })
@@ -140,18 +162,30 @@ export function useAccount(owner: string) {
     (state.rows.find((r) => r.kind === "preferences" && !r.deleted)
       ?.data as Preferences) || defaults;
   async function signout() {
-    if (busy.current) return false;
-    if (
-      current.current.pending.length &&
-      !confirm(
-        "Unsynchronized changes will be discarded on this device. Sign out?",
-      )
-    )
-      return false;
-    await clearAccount(owner);
-    await cloud?.auth.signOut();
-    return true;
+    if (closing.current) return false;
+    closing.current = true;
+    try {
+      const result = await operations.current(async () => {
+        if (
+          current.current.pending.length &&
+          !confirm(
+            "Unsynchronized changes will be discarded on this device. Sign out?",
+          )
+        )
+          return false;
+        await cloud?.auth.signOut();
+        mounted.current = false;
+        await clearAccount(owner);
+        return true;
+      });
+      if (!result) closing.current = false;
+      return result;
+    } catch (e) {
+      closing.current = false;
+      throw e;
+    }
   }
+
   return {
     state,
     ready,

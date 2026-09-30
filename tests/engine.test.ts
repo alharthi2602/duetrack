@@ -253,3 +253,59 @@ describe("Future occurrence editing", () => {
     );
   });
 });
+
+describe("overlapping local saves and cloud refresh", () => {
+  it("retains a save made during a delayed refresh and uploads it once", async () => {
+    const { accountOperations } = await import("../src/sync/operations");
+    const { queue } = await import("../src/sync/store");
+    const run = accountOperations();
+    let state = {
+      rows: [row],
+      pending: [],
+    } as import("../src/sync/store").Snapshot;
+    let finish!: () => void;
+    const delay = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const refresh = run(async () => {
+      await delay;
+      state = await synchronize("owner", state, () => {});
+    });
+    const changed = {
+      ...row,
+      data: { ...row.data, description: "Bin Ghatti 3" },
+    };
+    const save = run(async () => {
+      state = queue(state, changed);
+    });
+    finish();
+    await Promise.all([refresh, save]);
+    expect(state.rows[0].data.description).toBe("Bin Ghatti 3");
+    expect(state.pending).toHaveLength(1);
+    const mutation = state.pending[0].mutation;
+    mocks.rpc.mockResolvedValue({
+      data: { row: { ...changed, version: 2 } },
+      error: null,
+    });
+    mocks.select.mockResolvedValue({
+      data: [{ ...changed, version: 2 }],
+      error: null,
+    });
+    state = await run(() => synchronize("owner", state, () => {}));
+    expect(state.pending).toHaveLength(0);
+    expect(mocks.rpc).toHaveBeenCalledTimes(1);
+    expect(mocks.rpc.mock.calls[0][1].p_mutation).toBe(mutation);
+  });
+  it("continues accepting saves after an operation fails", async () => {
+    const { accountOperations } = await import("../src/sync/operations");
+    const run = accountOperations();
+    await expect(
+      run(async () => {
+        throw Error("Disconnected");
+      }),
+    ).rejects.toThrow("Disconnected");
+    await expect(run(async () => "Saved locally")).resolves.toBe(
+      "Saved locally",
+    );
+  });
+});
