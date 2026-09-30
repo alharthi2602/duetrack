@@ -105,3 +105,40 @@ test("PWA shell opens offline and restores a backup", async ({
     page.getByRole("button", { name: /Offline payment/ }),
   ).toHaveCount(1);
 });
+
+test("sign out is visible and clears the device account cache", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Explore the local preview" }).click();
+  const mobile = page.viewportSize()!.width < 800;
+  const signout = mobile
+    ? page.locator(".mobile-header-signout")
+    : page.locator(".sidebar").getByRole("button", { name: "Sign out" });
+  await expect(signout).toBeVisible();
+  await signout.click();
+  await expect(
+    page.getByRole("button", { name: "Explore the local preview" }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(async () => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open("duetrack-v1");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      try {
+        return await new Promise((resolve, reject) => {
+          const request = db
+            .transaction("accounts")
+            .objectStore("accounts")
+            .get("demo");
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+      } finally {
+        db.close();
+      }
+    }),
+  ).toBeUndefined();
+});

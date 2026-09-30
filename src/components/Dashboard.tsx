@@ -285,6 +285,17 @@ export function Dashboard({
             <Check />
           </span>
           DueTrack
+          <button
+            className="mobile-header-signout"
+            onClick={() =>
+              void act(async () => {
+                if (await a.signout()) leave();
+              })
+            }
+          >
+            <LogOut size={18} aria-hidden="true" />
+            Sign out
+          </button>
         </div>
         {owner === "demo" && (
           <div className="preview-banner">

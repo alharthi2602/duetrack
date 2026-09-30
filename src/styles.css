@@ -866,6 +866,12 @@ progress {
     font-size: 1.25rem;
     margin-bottom: 24px;
   }
+  .mobile-header-signout {
+    margin-left: auto;
+    font-size: 0.875rem;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
   .mobile-brand .brand-icon {
     width: 30px;
     height: 30px;
