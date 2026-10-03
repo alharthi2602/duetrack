@@ -1,10 +1,11 @@
 import { zipSync, unzipSync, strToU8, strFromU8 } from "fflate";
 import { Row, validateRow } from "../payments/model";
+import { validateCashLinks } from "../cash/rules";
 import { filePut } from "../sync/store";
 import { receipt } from "../attachments/service";
 export interface Backup {
   format: "duetrack";
-  version: 1;
+  version: 1 | 2;
   exportedAt: string;
   rows: Row[];
 }
@@ -25,7 +26,7 @@ export async function exportBackup(
   files["backup.json"] = strToU8(
     JSON.stringify({
       format: "duetrack",
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       rows: active,
     }),
@@ -49,7 +50,7 @@ export function inspectBackup(bytes: Uint8Array) {
   const b = JSON.parse(strFromU8(files["backup.json"])) as Backup;
   if (
     b.format !== "duetrack" ||
-    b.version !== 1 ||
+    ![1, 2].includes(b.version) ||
     !Array.isArray(b.rows) ||
     b.rows.length > 10000
   )
@@ -64,6 +65,9 @@ export function inspectBackup(bytes: Uint8Array) {
   }
   for (const r of b.rows) {
     validateRow(r);
+    if (b.version === 1 && ["cash_account", "cash_entry"].includes(r.kind))
+      throw Error("Unsupported version 1 record");
+    validateCashLinks(r, b.rows);
     if (r.deleted) throw Error("Backups must contain active records only");
     if (ids.has(r.id)) throw Error("Duplicate record in backup");
     ids.add(r.id);
@@ -128,7 +132,13 @@ export function restorePlan(
     );
   return rows.sort((x, y) => {
     const rank = (r: Row) =>
-      r.deleted ? (r.kind === "type" ? 3 : 2) : r.kind === "payment" ? 1 : 0;
+      r.deleted
+        ? ["type", "cash_account"].includes(r.kind)
+          ? 3
+          : 2
+        : ["payment", "cash_entry"].includes(r.kind)
+          ? 1
+          : 0;
     return rank(x) - rank(y);
   });
 }

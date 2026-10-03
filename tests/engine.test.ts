@@ -309,3 +309,70 @@ describe("overlapping local saves and cloud refresh", () => {
     );
   });
 });
+
+describe("Cash synchronization", () => {
+  const cashRow: Row = {
+    id: crypto.randomUUID(),
+    kind: "cash_account",
+    version: 1,
+    deleted: false,
+    data: {
+      name: "Savings",
+      currency: "AED",
+      openingDate: "2026-10-01",
+      openingBalance: 100000000,
+    },
+  };
+  it("keeps failed cash writes queued, preserves the mutation ID and exposes the reason", async () => {
+    const mutation = crypto.randomUUID();
+    const change = { id: cashRow.id, row: cashRow, base: 1, mutation };
+    mocks.rpc.mockResolvedValue({
+      error: { message: "Opening balance is fixed while entries exist" },
+    });
+    const failed = await synchronize(
+      "owner",
+      { rows: [cashRow], pending: [change] },
+      () => {},
+    );
+    expect(failed.pending[0].row.kind).toBe("cash_account");
+    expect(failed.pending[0].error).toContain("Opening balance is fixed");
+    mocks.rpc.mockResolvedValue({
+      data: { conflict: false, row: { ...cashRow, version: 2 } },
+    });
+    mocks.select.mockResolvedValue({ data: [{ ...cashRow, version: 2 }] });
+    const saved = await synchronize("owner", failed, () => {});
+    expect(saved.pending).toHaveLength(0);
+    expect(mocks.rpc.mock.calls[1][1].p_mutation).toBe(mutation);
+  });
+  it("retains a cash conflict until explicitly resolved", async () => {
+    mocks.rpc.mockResolvedValue({
+      data: {
+        conflict: true,
+        row: {
+          ...cashRow,
+          version: 2,
+          data: { ...cashRow.data, name: "Bank" },
+        },
+      },
+    });
+    const result = await synchronize(
+      "owner",
+      {
+        rows: [cashRow],
+        pending: [
+          {
+            id: cashRow.id,
+            row: cashRow,
+            base: 1,
+            mutation: crypto.randomUUID(),
+          },
+        ],
+      },
+      () => {},
+    );
+    expect(result.pending[0].remote?.data.name).toBe("Bank");
+    expect(result.rows.find((r) => r.id === cashRow.id)?.data.name).toBe(
+      "Savings",
+    );
+  });
+});

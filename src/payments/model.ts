@@ -36,6 +36,7 @@ export type Payment = z.infer<typeof paymentSchema>;
 export const typeSchema = z.object({
   name: z.string().trim().min(1).max(60),
   order: z.number().int().nonnegative(),
+  direction: z.enum(["expense", "income"]).default("expense"),
 });
 export const prefsSchema = z.object({
   currency: z.string().regex(/^[A-Z]{3}$/),
@@ -50,7 +51,35 @@ export const prefsSchema = z.object({
   theme: z.enum(["light", "dark", "system"]),
 });
 export type Preferences = z.infer<typeof prefsSchema>;
-export type Kind = "payment" | "type" | "preferences";
+export const cashAccountSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  currency: z.string().regex(/^[A-Z]{3}$/),
+  openingDate: dateSchema,
+  openingBalance: z.number().int().min(-1e12).max(1e12),
+});
+export const cashCategories = [
+  "rent",
+  "mortgage",
+  "service_charges",
+  "maintenance",
+  "savings_profit",
+  "adjustment",
+  "other",
+] as const;
+export const cashEntrySchema = z.object({
+  accountId: z.string().uuid(),
+  currency: z.string().regex(/^[A-Z]{3}$/),
+  direction: z.enum(["in", "out"]),
+  amount: z.number().int().positive().max(1e12),
+  date: dateSchema,
+  category: z.enum(cashCategories),
+  typeId: z.string().uuid().optional(),
+  description: z.string().max(2000),
+});
+export type CashAccount = z.infer<typeof cashAccountSchema>;
+export type CashEntry = z.infer<typeof cashEntrySchema>;
+export type Kind =
+  "payment" | "type" | "preferences" | "cash_account" | "cash_entry";
 export interface Row {
   id: string;
   kind: Kind;
@@ -81,6 +110,7 @@ export function minorUnits(s: string, currency: string) {
 export function money(n: number | bigint, c: string) {
   const digits = currencyDigits(c),
     minor = BigInt(n),
+    absolute = minor < 0n ? -minor : minor,
     factor = 10n ** BigInt(digits);
   const formatter = new Intl.NumberFormat(undefined, {
     style: "currency",
@@ -89,9 +119,15 @@ export function money(n: number | bigint, c: string) {
   const fraction = new Intl.NumberFormat(undefined, {
     useGrouping: false,
     minimumIntegerDigits: Math.max(1, digits),
-  }).format(Number(minor % factor));
+  }).format(Number(absolute % factor));
   return formatter
-    .formatToParts(minor / factor)
+    .formatToParts(
+      minor < 0n
+        ? absolute / factor === 0n
+          ? -0
+          : -(absolute / factor)
+        : absolute / factor,
+    )
     .map((part) => (part.type === "fraction" ? fraction : part.value))
     .join("");
 }
@@ -145,7 +181,13 @@ export function sorted(rows: Row[]) {
 export function validateRow(r: Row) {
   z.object({
     id: z.string().uuid(),
-    kind: z.enum(["payment", "type", "preferences"]),
+    kind: z.enum([
+      "payment",
+      "type",
+      "preferences",
+      "cash_account",
+      "cash_entry",
+    ]),
     version: z.number().int().nonnegative(),
     deleted: z.boolean(),
   }).parse(r);
@@ -153,7 +195,11 @@ export function validateRow(r: Row) {
     ? paymentSchema
     : r.kind === "type"
       ? typeSchema
-      : prefsSchema
+      : r.kind === "cash_account"
+        ? cashAccountSchema
+        : r.kind === "cash_entry"
+          ? cashEntrySchema
+          : prefsSchema
   ).parse(r.data);
   return r;
 }
@@ -165,3 +211,16 @@ export function errorMessage(e: unknown) {
       .join("; ");
   return e instanceof Error ? e.message : "Something went wrong. Please retry.";
 }
+
+export function signedMinorUnits(s: string, currency: string) {
+  const sign = s.startsWith("-") ? -1 : 1;
+  const text = s.replace(/^[+-]/, "");
+  if (/^0(?:\.0+)?$/.test(text)) return 0;
+  return sign * minorUnits(text, currency);
+}
+export const isIncome = (types: Row[], typeId: string) =>
+  types.some(
+    (t) => t.id === typeId && !t.deleted && t.data.direction === "income",
+  );
+export const paymentStatus = (p: Payment, day: string, types: Row[]) =>
+  p.paid && isIncome(types, p.typeId) ? "Received" : status(p, day);

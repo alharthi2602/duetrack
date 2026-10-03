@@ -206,7 +206,7 @@ describe("Attachments and backup", () => {
     expect(inspectBackup(pack([type, row])).backup.rows).toHaveLength(2);
     expect(() => inspectBackup(pack([row]))).toThrow("Payment type missing");
     expect(() => inspectBackup(pack([type, row, row]))).toThrow("Duplicate");
-    expect(() => inspectBackup(pack([type, row], 2))).toThrow("Unsupported");
+    expect(() => inspectBackup(pack([type, row], 3))).toThrow("Unsupported");
   });
   it("requires receipt bytes and relationships", () => {
     const r = {

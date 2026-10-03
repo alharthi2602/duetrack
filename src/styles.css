@@ -1105,3 +1105,146 @@ progress {
     transition: none !important;
   }
 }
+/* Keep grid and flex children within the viewport instead of clipping content. */
+.app-shell {
+  grid-template-columns: 238px minmax(0, 1fr);
+}
+main,
+main > *,
+.settings-card,
+.total-card,
+.search,
+.search-tools,
+.page-heading > div,
+.form-grid > *,
+.dialog,
+.ledger-entry > div {
+  min-width: 0;
+}
+input,
+select,
+textarea {
+  min-width: 0;
+  max-width: 100%;
+}
+.totals-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.total-card strong,
+.detail-amount {
+  overflow-wrap: anywhere;
+  font-size: clamp(1.2rem, 2.2vw, 2rem);
+}
+.total-card > div {
+  height: auto;
+  gap: 8px;
+}
+.type-direction {
+  display: block;
+  color: var(--muted);
+  font-weight: 400;
+}
+.type-item strong,
+.ledger-entry p {
+  overflow-wrap: anywhere;
+}
+.ledger-actions {
+  margin-top: 20px;
+}
+.ledger-entry {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.ledger-entry p {
+  margin: 8px 0;
+}
+.settings-card > label {
+  margin-top: 18px;
+}
+fieldset {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin: 20px 0;
+  min-width: 0;
+}
+.badge.received {
+  background: #e9f7f1;
+  color: #137357;
+}
+@media (max-width: 1200px) and (min-width: 801px) {
+  .app-shell {
+    grid-template-columns: 210px minmax(0, 1fr);
+  }
+  .table-heading,
+  .payment-row {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) 94px minmax(
+        0,
+        1fr
+      ) 16px;
+  }
+  .row-amount {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+@media (max-width: 800px) {
+  main {
+    padding-left: max(18px, env(safe-area-inset-left));
+    padding-right: max(18px, env(safe-area-inset-right));
+    padding-bottom: calc(110px + env(safe-area-inset-bottom));
+  }
+  .tabs {
+    margin: 0;
+    padding: 0 0 10px;
+    width: 100%;
+    max-width: 100%;
+  }
+  .page-heading {
+    flex-wrap: wrap;
+  }
+  .add-payment {
+    margin-top: 0;
+  }
+  .totals-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .total-card strong {
+    font-size: 1.7rem;
+  }
+  .payment-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+  }
+  .row-amount {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    max-width: 140px;
+  }
+  .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mobile-nav {
+    height: auto;
+    min-height: 76px;
+    padding-left: max(4px, env(safe-area-inset-left));
+    padding-right: max(4px, env(safe-area-inset-right));
+  }
+  .mobile-nav button {
+    width: 20%;
+    min-width: 0;
+    padding: 8px 2px;
+    font-size: 0.7rem;
+  }
+  .mobile-brand {
+    flex-wrap: wrap;
+  }
+  .dialog {
+    padding: 20px 16px;
+  }
+  input[type="date"] {
+    appearance: none;
+  }
+}

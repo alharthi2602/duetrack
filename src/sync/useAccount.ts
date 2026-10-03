@@ -26,6 +26,19 @@ export function useAccount(owner: string) {
   const initialized = useRef(false);
   const closing = useRef(false);
   const demo = owner === "demo";
+  const [advanced, setAdvanced] = useState(
+    owner === "demo" || localStorage.getItem("duetrack-schema-version") === "2",
+  );
+  const advancedRef = useRef(advanced);
+  async function checkCapabilities() {
+    if (demo || advancedRef.current || !cloud || !navigator.onLine) return;
+    const { data, error } = await cloud.rpc("duetrack_capabilities");
+    if (!error && data?.cash && data?.income && mounted.current) {
+      advancedRef.current = true;
+      setAdvanced(true);
+      localStorage.setItem("duetrack-schema-version", "2");
+    }
+  }
   async function commit(s: Snapshot) {
     if (!mounted.current) return;
     await saveAccount(owner, s);
@@ -51,6 +64,7 @@ export function useAccount(owner: string) {
     try {
       await operations.current(async () => {
         if (!mounted.current || closing.current) return;
+        await checkCapabilities();
         let next = await synchronize(owner, current.current, setProgress);
         if (!next.pending.length) {
           const preferences =
@@ -75,6 +89,18 @@ export function useAccount(owner: string) {
   }
   async function change(rows: Row[]) {
     const validated = rows.map(validateRow);
+    if (
+      !advancedRef.current &&
+      validated.some(
+        (r) =>
+          r.kind === "cash_account" ||
+          r.kind === "cash_entry" ||
+          (r.kind === "type" && r.data.direction === "income"),
+      )
+    )
+      throw Error(
+        "Apply Supabase migration 002_cash_and_income.sql before using cash and income features.",
+      );
     await operations.current(async () => {
       if (!mounted.current || closing.current)
         throw Error("The account is signing out. Please sign in again.");
@@ -192,6 +218,7 @@ export function useAccount(owner: string) {
     syncing,
     error,
     progress,
+    advanced,
     prefs,
     change,
     sync,

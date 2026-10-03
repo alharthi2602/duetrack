@@ -50,6 +50,9 @@ beforeAll(async () => {
     "",
   );
   await db.exec(migration);
+  await db.exec(
+    readFileSync("supabase/migrations/002_cash_and_income.sql", "utf8"),
+  );
 }, 30000);
 afterAll(async () => await db.close());
 describe.sequential("PostgreSQL migration and authorization", () => {
@@ -214,5 +217,106 @@ describe.sequential("PostgreSQL migration and authorization", () => {
       (await change(type, "type", { name: "Mortgage", order: 0 }, 1, true)).row
         .deleted,
     ).toBe(true);
+  });
+});
+
+describe.sequential("Cash backend protection", () => {
+  const cash = crypto.randomUUID(),
+    entryId = crypto.randomUUID();
+  const data = {
+    name: "Savings",
+    currency: "AED",
+    openingDate: "2026-10-01",
+    openingBalance: 100000000,
+  };
+  const entry = {
+    accountId: cash,
+    currency: "AED",
+    direction: "in",
+    amount: 20000,
+    date: "2026-10-03",
+    category: "savings_profit",
+    description: "Interest",
+  };
+  it("advertises capabilities and keeps legacy writes private", async () => {
+    await user(alice);
+    expect(
+      (await db.query<any>("select duetrack_capabilities() as c")).rows[0].c
+        .cash,
+    ).toBe(true);
+    await expect(
+      db.query(
+        "select apply_change_v1($1,'cash_account',$2::jsonb,false,0,$3)",
+        [cash, JSON.stringify(data), crypto.randomUUID()],
+      ),
+    ).rejects.toThrow("permission denied");
+  });
+  it("creates owned accounts and entries with mutation idempotency", async () => {
+    await user(alice);
+    await change(cash, "cash_account", data, 0);
+    const mutation = crypto.randomUUID();
+    const first = await change(
+      entryId,
+      "cash_entry",
+      entry,
+      0,
+      false,
+      mutation,
+    );
+    expect(first.row.owner).toBe(alice);
+    expect(
+      await change(entryId, "cash_entry", entry, 0, false, mutation),
+    ).toEqual(first);
+  });
+  it("isolates account links across users", async () => {
+    await user(bob);
+    await expect(
+      change(crypto.randomUUID(), "cash_entry", entry, 0),
+    ).rejects.toThrow("account unavailable");
+    await expect(change(cash, "cash_account", data, 1)).rejects.toThrow(
+      "Not authorized",
+    );
+    expect(
+      (await db.query("select * from records where kind='cash_account'")).rows,
+    ).toHaveLength(0);
+  });
+  it("rejects invalid currencies, dates, amounts and opening changes", async () => {
+    await user(alice);
+    for (const update of [
+      { currency: "USD" },
+      { date: "2026-09-30" },
+      { amount: 0 },
+      { amount: 1.5 },
+      { category: "invalid" },
+    ])
+      await expect(
+        change(crypto.randomUUID(), "cash_entry", { ...entry, ...update }, 0),
+      ).rejects.toThrow();
+    await expect(
+      change(cash, "cash_account", { ...data, openingBalance: 200 }, 1),
+    ).rejects.toThrow("Opening balance is fixed");
+    await expect(change(cash, "cash_account", data, 1, true)).rejects.toThrow(
+      "cash entries first",
+    );
+  });
+  it("protects income direction and cash type links and checks stale deletions", async () => {
+    await user(alice);
+    const rental = crypto.randomUUID(),
+      paymentId = crypto.randomUUID();
+    const t = { name: "Flat rental", order: 50, direction: "income" };
+    await change(rental, "type", t, 0);
+    await change(paymentId, "payment", { ...payment, typeId: rental }, 0);
+    await expect(
+      change(rental, "type", { ...t, direction: "expense" }, 1),
+    ).rejects.toThrow("Direction is fixed");
+    await change(paymentId, "payment", { ...payment, typeId: rental }, 1, true);
+    await change(entryId, "cash_entry", { ...entry, typeId: rental }, 1);
+    await expect(change(rental, "type", t, 1, true)).rejects.toThrow(
+      "cash entries first",
+    );
+    await change(entryId, "cash_entry", { ...entry, typeId: rental }, 2, true);
+    expect((await change(entryId, "cash_entry", entry, 2)).conflict).toBe(true);
+    await change(rental, "type", t, 1, true);
+    await change(cash, "cash_account", data, 1, true);
   });
 });

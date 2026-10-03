@@ -29,12 +29,15 @@ import {
   Payment,
   today,
   status,
+  paymentStatus,
+  isIncome,
   money,
   displayDate,
   totals,
   sorted,
   errorMessage,
 } from "../payments/model";
+import { CashWorkspace } from "./CashWorkspace";
 import { PaymentTypeForm } from "./PaymentTypeForm";
 import { PaymentForm } from "../components/PaymentForm";
 import { receipt } from "../attachments/service";
@@ -59,6 +62,44 @@ import {
 } from "../recurrence/rules";
 import "../styles.css";
 function ConflictSummary({ row }: { row: Row }) {
+  if (row.kind === "cash_entry")
+    return (
+      <dl>
+        {[
+          ["Amount", money(row.data.amount, row.data.currency)],
+          ["Movement", row.data.direction === "in" ? "Money in" : "Money out"],
+          ["Date", displayDate(row.data.date)],
+          ["Category", row.data.category],
+          ["Description", row.data.description || "—"],
+          ["Account", row.data.accountId],
+          ["Status", row.deleted ? "Deleted" : "Active"],
+        ].map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    );
+  if (row.kind === "cash_account")
+    return (
+      <dl>
+        {[
+          ["Name", row.data.name],
+          [
+            "Opening balance",
+            money(row.data.openingBalance, row.data.currency),
+          ],
+          ["Opening date", displayDate(row.data.openingDate)],
+          ["Status", row.deleted ? "Deleted" : "Active"],
+        ].map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    );
   if (row.kind !== "payment")
     return (
       <p>
@@ -186,6 +227,8 @@ export function Dashboard({
     }),
   );
   const sums = totals(filtered);
+  const incomeView = tab !== "all" && isIncome(types, tab);
+  const detailsIncome = details && isIncome(types, details.data.typeId);
   const title =
     tab === "all"
       ? "All payments"
@@ -253,6 +296,20 @@ export function Dashboard({
         >
           <Settings size={20} />
           Settings & backup
+        </button>
+        <button
+          className={panel === "cash" ? "nav active" : "nav"}
+          onClick={() => setPanel("cash")}
+        >
+          <Wallet size={20} />
+          Cash ledger
+        </button>
+        <button
+          className={panel === "forecast" ? "nav active" : "nav"}
+          onClick={() => setPanel("forecast")}
+        >
+          <Cloud size={20} />
+          Coverage forecast
         </button>
         <div className="sidebar-bottom">
           <div className="sync-caption">
@@ -404,7 +461,10 @@ export function Dashboard({
                   <React.Fragment key={currency}>
                     <div className="total-card unpaid">
                       <div>
-                        <span>Total unpaid · {currency}</span>
+                        <span>
+                          {incomeView ? "Expected rent" : "Total unpaid"} ·{" "}
+                          {currency}
+                        </span>
                         <span className="metric-icon">
                           <Wallet size={20} />
                         </span>
@@ -416,12 +476,15 @@ export function Dashboard({
                             (r) => !r.data.paid && r.data.currency === currency,
                           ).length
                         }{" "}
-                        unpaid payments
+                        {incomeView ? "expected receipts" : "unpaid payments"}
                       </small>
                     </div>
                     <div className="total-card">
                       <div>
-                        <span>Total paid · {currency}</span>
+                        <span>
+                          {incomeView ? "Total received" : "Total paid"} ·{" "}
+                          {currency}
+                        </span>
                         <span className="metric-icon success">
                           <Check size={20} />
                         </span>
@@ -433,20 +496,30 @@ export function Dashboard({
                             (r) => r.data.paid && r.data.currency === currency,
                           ).length
                         }{" "}
-                        paid payments
+                        {incomeView ? "received payments" : "paid payments"}
                       </small>
+                    </div>
+                    <div className="total-card">
+                      <span>Total value · {currency}</span>
+                      <strong>{money(t.paid + t.unpaid, currency)}</strong>
+                      <small>Paid / received + unpaid / expected</small>
                     </div>
                   </React.Fragment>
                 ))
               ) : (
                 <>
                   <div className="total-card unpaid">
-                    <span>Total unpaid</span>
+                    <span>{incomeView ? "Expected rent" : "Total unpaid"}</span>
                     <strong>{money(0, a.prefs.currency)}</strong>
                     <small>No payments in this view</small>
                   </div>
                   <div className="total-card">
-                    <span>Total paid</span>
+                    <span>{incomeView ? "Total received" : "Total paid"}</span>
+                    <strong>{money(0, a.prefs.currency)}</strong>
+                    <small>No payments in this view</small>
+                  </div>
+                  <div className="total-card">
+                    <span>Total value</span>
                     <strong>{money(0, a.prefs.currency)}</strong>
                     <small>No payments in this view</small>
                   </div>
@@ -507,8 +580,8 @@ export function Dashboard({
                       onChange={(e) => setFilter(e.target.value)}
                     >
                       <option value="all">All statuses</option>
-                      <option value="unpaid">Unpaid</option>
-                      <option value="paid">Paid</option>
+                      <option value="unpaid">Unpaid / expected</option>
+                      <option value="paid">Paid / received</option>
                       <option value="overdue">Overdue</option>
                     </select>
                   </label>
@@ -552,7 +625,7 @@ export function Dashboard({
               {filtered.length ? (
                 filtered.map((r) => {
                   const p = r.data as Payment,
-                    s = status(p, day),
+                    s = paymentStatus(p, day, types),
                     name = types.find((t) => t.id === p.typeId)?.data.name;
                   const pending = a.state.pending.find((x) => x.id === r.id);
                   return (
@@ -598,7 +671,10 @@ export function Dashboard({
                       <span
                         className={`badge ${s.toLowerCase().replace(" ", "-")}`}
                       >
-                        {s === "Paid" && <Check size={13} />} {s}
+                        {(s === "Paid" || s === "Received") && (
+                          <Check size={13} />
+                        )}{" "}
+                        {s}
                       </span>
                       <strong className="row-amount">
                         {money(p.amount, p.currency)}
@@ -642,6 +718,33 @@ export function Dashboard({
                   : "Your payments are saved to your account."}
             </p>
           </>
+        ) : panel === "cash" || panel === "forecast" ? (
+          a.advanced ? (
+            <CashWorkspace
+              rows={a.state.rows}
+              day={day}
+              currency={a.prefs.currency}
+              change={a.change}
+              forecastOnly={panel === "forecast"}
+            />
+          ) : (
+            <section className="settings-card">
+              <h1>Backend update required</h1>
+              <p>
+                Apply <code>supabase/migrations/002_cash_and_income.sql</code>{" "}
+                in your Supabase SQL Editor to enable cash and income tracking.
+                Existing payments continue to work. The app checks again when
+                online.
+              </p>
+              <a
+                href="https://github.com/alharthi2602/duetrack/blob/main/supabase/migrations/002_cash_and_income.sql"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open migration SQL
+              </a>
+            </section>
+          )
         ) : panel === "types" ? (
           <>
             <div className="page-heading">
@@ -661,7 +764,12 @@ export function Dashboard({
             <div className="settings-card">
               {types.map((t, i) => (
                 <div className="type-item" key={t.id}>
-                  <strong>{t.data.name}</strong>
+                  <strong>
+                    {t.data.name}
+                    <small className="type-direction">
+                      {t.data.direction === "income" ? "Income" : "Expense"}
+                    </small>
+                  </strong>
                   <span>
                     {payments.filter((p) => p.data.typeId === t.id).length}{" "}
                     payments
@@ -697,7 +805,7 @@ export function Dashboard({
                     onClick={() => {
                       if (!canDeleteType(t.id, a.state.rows)) {
                         setError(
-                          "This type contains payments. Move or delete those payments before deleting the type.",
+                          "This type contains payments or cash entries. Move or delete those records before deleting the type.",
                         );
                         return;
                       }
@@ -805,9 +913,9 @@ export function Dashboard({
             <section className="settings-card">
               <h2>Backup & restore</h2>
               <p className="muted">
-                Download one ZIP with your payments, types, preferences and
-                receipts. Store it somewhere private. Maximum import size: 100
-                MB.
+                Download one ZIP with your payments, types, cash accounts, cash
+                entries, preferences and receipts. Store it somewhere private.
+                Maximum import size: 100 MB.
               </p>
               <div className="actions">
                 <button
@@ -862,6 +970,19 @@ export function Dashboard({
               {backup && (
                 <div className="notice">
                   <strong>Restore preview</strong>
+                  <p>
+                    {
+                      backup.backup.rows.filter(
+                        (r) => r.kind === "cash_account",
+                      ).length
+                    }{" "}
+                    cash accounts ·{" "}
+                    {
+                      backup.backup.rows.filter((r) => r.kind === "cash_entry")
+                        .length
+                    }{" "}
+                    cash entries
+                  </p>
                   <p>
                     {
                       backup.backup.rows.filter((r) => r.kind === "payment")
@@ -991,6 +1112,20 @@ export function Dashboard({
           ))}
       </main>
       <nav className="mobile-nav">
+        <button
+          className={panel === "cash" ? "active" : ""}
+          onClick={() => setPanel("cash")}
+        >
+          <Wallet size={20} />
+          Cash
+        </button>
+        <button
+          className={panel === "forecast" ? "active" : ""}
+          onClick={() => setPanel("forecast")}
+        >
+          <Cloud size={20} />
+          Forecast
+        </button>
         <button className={!panel ? "active" : ""} onClick={() => setPanel("")}>
           <Wallet size={20} />
           Payments
@@ -1013,9 +1148,15 @@ export function Dashboard({
       {typeEditor !== undefined && (
         <PaymentTypeForm
           name={typeEditor?.data.name}
+          direction={typeEditor?.data.direction || "expense"}
+          incomeEnabled={a.advanced}
+          directionLocked={
+            !!typeEditor &&
+            payments.some((p) => p.data.typeId === typeEditor.id)
+          }
           syncing={a.syncing}
           onClose={() => setTypeEditor(undefined)}
-          onSave={async (name) => {
+          onSave={async (name, direction) => {
             if (typeEditor) {
               const latest = a.state.rows.find(
                 (r) => r.id === typeEditor.id && !r.deleted,
@@ -1024,7 +1165,15 @@ export function Dashboard({
                 throw Error(
                   "This type was deleted on another device. Close this form and add a new type.",
                 );
-              await a.change([renameType(latest, name)]);
+              if (
+                payments.some((p) => p.data.typeId === latest.id) &&
+                direction !== (latest.data.direction || "expense")
+              )
+                throw Error("Direction is fixed while payments exist");
+              const renamed = renameType(latest, name);
+              await a.change([
+                { ...renamed, data: { ...renamed.data, direction } },
+              ]);
             } else {
               await a.change([
                 {
@@ -1032,7 +1181,7 @@ export function Dashboard({
                   kind: "type",
                   version: 0,
                   deleted: false,
-                  data: { name, order: types.length },
+                  data: { name, direction, order: types.length },
                 },
               ]);
             }
@@ -1073,8 +1222,11 @@ export function Dashboard({
                 ["Reference code", details.data.reference || "—"],
                 ["Description", details.data.description || "—"],
                 ["Proof of payment", details.data.attachment?.name || "None"],
-                ["Status", status(details.data, day)],
-                ["Payment date", displayDate(details.data.paymentDate)],
+                ["Status", paymentStatus(details.data, day, types)],
+                [
+                  detailsIncome ? "Received date" : "Payment date",
+                  displayDate(details.data.paymentDate),
+                ],
               ].map(([k, v]) => (
                 <div key={k}>
                   <dt>{k}</dt>
@@ -1137,7 +1289,13 @@ export function Dashboard({
                   })
                 }
               >
-                {details.data.paid ? "Mark unpaid" : "Mark paid"}
+                {detailsIncome
+                  ? details.data.paid
+                    ? "Mark not received"
+                    : "Mark received"
+                  : details.data.paid
+                    ? "Mark unpaid"
+                    : "Mark paid"}
               </button>
               {details.data.seriesId && (
                 <button

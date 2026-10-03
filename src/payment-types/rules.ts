@@ -16,6 +16,9 @@ export function reorderTypes(
 }
 export function canDeleteType(typeId: string, rows: Row[]) {
   return !rows.some(
-    (r) => r.kind === "payment" && !r.deleted && r.data.typeId === typeId,
+    (r) =>
+      (r.kind === "payment" || r.kind === "cash_entry") &&
+      !r.deleted &&
+      r.data.typeId === typeId,
   );
 }

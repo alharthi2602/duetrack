@@ -40,10 +40,13 @@ export async function synchronize(
         continue;
       }
       result.rows = result.rows.map((r) => (r.id === p.id ? data.row : r));
-    } catch {
+    } catch (e) {
       result.pending.push({
         ...p,
-        error: "Could not save. Check your connection and retry.",
+        error:
+          e && typeof e === "object" && "message" in e
+            ? String(e.message)
+            : "Could not save. Check your connection and retry.",
       });
     }
   }

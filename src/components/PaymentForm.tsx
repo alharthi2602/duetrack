@@ -7,6 +7,7 @@ import {
   amountInput,
   today,
   errorMessage,
+  isIncome,
 } from "../payments/model";
 import { generate } from "../recurrence/rules";
 import { metadata } from "../attachments/service";
@@ -32,6 +33,8 @@ export function PaymentForm({
     [attachment, setAttachment] = useState(p?.attachment),
     [future, setFuture] = useState(false),
     [paid, setPaid] = useState(p?.paid || false);
+  const [typeId, setTypeId] = useState(p?.typeId || types[0]?.id || "");
+  const income = isIncome(types, typeId);
   return (
     <div className="overlay">
       <section
@@ -178,7 +181,11 @@ export function PaymentForm({
           )}
           <label>
             Payment type
-            <select name="type" defaultValue={p?.typeId || types[0]?.id}>
+            <select
+              name="type"
+              value={typeId}
+              onChange={(e) => setTypeId(e.target.value)}
+            >
               {types.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.data.name}
@@ -206,11 +213,11 @@ export function PaymentForm({
               checked={paid}
               onChange={(e) => setPaid(e.target.checked)}
             />{" "}
-            Mark as paid
+            {income ? "Mark as received" : "Mark as paid"}
           </label>
           {paid && (
             <label>
-              Payment date
+              {income ? "Received date" : "Payment date"}
               <input
                 type="date"
                 name="paymentDate"
@@ -219,6 +226,10 @@ export function PaymentForm({
               />
             </label>
           )}
+          <p className="muted">
+            This status does not update cash. Record the actual bank movement
+            separately in Cash ledger.
+          </p>
           {p?.seriesId && (
             <label className="check">
               <input

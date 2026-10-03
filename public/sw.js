@@ -1,4 +1,4 @@
-const CACHE = "duetrack-shell-v1";
+const CACHE = "duetrack-shell-v2";
 self.addEventListener("install", (event) =>
   event.waitUntil(
     (async () => {

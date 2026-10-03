@@ -3,16 +3,23 @@ import { errorMessage, typeSchema } from "../payments/model";
 
 export function PaymentTypeForm({
   name: initialName,
+  direction: initialDirection = "expense",
+  directionLocked = false,
+  incomeEnabled = true,
   syncing,
   onSave,
   onClose,
 }: {
   name?: string;
+  direction?: "income" | "expense";
+  directionLocked?: boolean;
+  incomeEnabled?: boolean;
   syncing: boolean;
-  onSave: (name: string) => Promise<void>;
+  onSave: (name: string, direction: "income" | "expense") => Promise<void>;
   onClose: () => void;
 }) {
   const [name, setName] = useState(initialName || "");
+  const [direction, setDirection] = useState(initialDirection);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   return (
@@ -37,7 +44,7 @@ export function PaymentTypeForm({
           onSubmit={async (event) => {
             event.preventDefault();
             if (syncing || saving) return;
-            const parsed = typeSchema.safeParse({ name, order: 0 });
+            const parsed = typeSchema.safeParse({ name, order: 0, direction });
             if (!parsed.success) {
               setError(
                 name.trim().length
@@ -49,7 +56,7 @@ export function PaymentTypeForm({
             setSaving(true);
             setError("");
             try {
-              await onSave(parsed.data.name);
+              await onSave(parsed.data.name, parsed.data.direction);
               onClose();
             } catch (e) {
               setError(errorMessage(e));
@@ -71,6 +78,28 @@ export function PaymentTypeForm({
           <p id="type-name-help" className="muted">
             Up to 60 characters. Spaces and numbers are welcome.
           </p>
+          <label>
+            Type direction
+            <select
+              value={direction}
+              disabled={directionLocked || saving}
+              onChange={(e) =>
+                setDirection(e.target.value as "income" | "expense")
+              }
+            >
+              <option value="expense">
+                Expense (mortgage or other payment)
+              </option>
+              <option value="income" disabled={!incomeEnabled}>
+                Income (rent from an asset)
+              </option>
+            </select>
+            <small>
+              {directionLocked
+                ? "Direction is fixed while this type contains payments."
+                : "Existing types default to Expense. Use an Income type for each rental asset."}
+            </small>
+          </label>
           {error && (
             <p className="error" role="alert">
               {error}
