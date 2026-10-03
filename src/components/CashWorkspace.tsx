@@ -555,7 +555,13 @@ export function CashWorkspace({
                       ? "Projected surplus"
                       : "Amount to cover"}
                   </span>
-                  <strong>
+                  <strong
+                    className={
+                      result.closing >= 0n
+                        ? "forecast-surplus"
+                        : "forecast-shortfall"
+                    }
+                  >
                     {money(
                       result.closing < 0n ? -result.closing : result.closing,
                       result.currency,

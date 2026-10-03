@@ -1181,10 +1181,9 @@ fieldset {
   }
   .table-heading,
   .payment-row {
-    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) 94px minmax(
-        0,
-        1fr
-      ) 16px;
+    grid-template-columns:
+      minmax(0, 2fr) minmax(0, 1fr) 94px minmax(0, 1fr)
+      16px;
   }
   .row-amount {
     white-space: normal;
@@ -1247,4 +1246,17 @@ fieldset {
   input[type="date"] {
     appearance: none;
   }
+}
+
+.forecast-surplus {
+  color: #137357;
+}
+.forecast-shortfall {
+  color: #b54034;
+}
+[data-theme="dark"] .forecast-surplus {
+  color: #70dfb7;
+}
+[data-theme="dark"] .forecast-shortfall {
+  color: #ff9b90;
 }
