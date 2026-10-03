@@ -199,3 +199,106 @@ describe("Manual cash and mortgage coverage", () => {
     expect(deleted[0].kind).toBe("cash_entry");
   });
 });
+
+describe("Combined mortgage and cash coverage", () => {
+  const secondAccount = {
+    ...account,
+    id: crypto.randomUUID(),
+    data: { ...account.data, name: "Current", openingBalance: 50000000 },
+  };
+  const usdAccount = {
+    ...account,
+    id: crypto.randomUUID(),
+    data: {
+      ...account.data,
+      name: "USD",
+      currency: "USD",
+      openingBalance: 10000,
+    },
+  };
+  const secondMortgage = {
+    ...mortgage,
+    id: crypto.randomUUID(),
+    data: { ...mortgage.data, name: "Mortgage 2" },
+  };
+  it("includes all expense types once and excludes received income", () => {
+    const f = forecast(
+      account,
+      [
+        ...rows,
+        secondMortgage,
+        payment(mortgage.id, 20000),
+        payment(secondMortgage.id, 30000),
+        payment(rent.id, 40000),
+      ],
+      "2026-10-03",
+      "2026-12-31",
+      "all",
+      [rent.id],
+    );
+    expect(f.mortgage).toBe(50000n);
+    expect(f.rent).toBe(40000n);
+    expect(f.closing).toBe(99990000n);
+  });
+  it("combines opening balances and each account ledger without counting mortgage twice", () => {
+    const e = {
+      ...entry(10000, "out"),
+      data: { ...entry(10000, "out").data, accountId: secondAccount.id },
+    };
+    const records = [
+      ...rows,
+      secondAccount,
+      entry(20000),
+      e,
+      payment(mortgage.id, 50000),
+    ];
+    const f = forecast(
+      [account, secondAccount, account],
+      records,
+      "2026-10-03",
+      "2026-12-31",
+      "all",
+      [],
+    );
+    expect(f.available).toBe(150010000n);
+    expect(f.mortgage).toBe(50000n);
+    expect(f.closing).toBe(149960000n);
+    expect(cashBalance(account, records, "2026-10-03")).toBe(100020000n);
+    expect(cashBalance(secondAccount, records, "2026-10-03")).toBe(49990000n);
+  });
+  it("produces separate balances and coverage for mixed currencies", () => {
+    const f = forecast(
+      [account, usdAccount],
+      [
+        ...rows,
+        usdAccount,
+        payment(mortgage.id, 3000, undefined, false, "USD"),
+      ],
+      "2026-10-03",
+      "2026-12-31",
+      "all",
+      [],
+    );
+    expect(f.available).toBe(100000000n);
+    expect(f.otherCurrencies[0][0]).toBe("USD");
+    expect(f.otherCurrencies[0][1].available).toBe(10000n);
+    expect(f.otherCurrencies[0][1].closing).toBe(7000n);
+  });
+  it("rejects a combined forecast date before an account opening balance", () =>
+    expect(() =>
+      forecast(
+        [
+          account,
+          {
+            ...secondAccount,
+            data: { ...secondAccount.data, openingDate: "2026-11-01" },
+          },
+        ],
+        rows,
+        "2026-10-03",
+        "2026-12-31",
+        "all",
+        [],
+      ),
+    ).toThrow("Current"));
+});

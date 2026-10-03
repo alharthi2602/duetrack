@@ -64,7 +64,7 @@ test("manual cash CRUD, history, backup restore and forecast", async ({
   await page.getByRole("button", { name: "Save cash entry" }).click();
   await expect(page.getByText(/997,000.00/)).toBeVisible();
   await nav(page, "forecast");
-  await page.getByLabel("Balance date", {exact:true}).fill("2026-10-03");
+  await page.getByLabel("Balance date", { exact: true }).fill("2026-10-03");
   await page.getByLabel("Through date").fill("2026-12-31");
   await page
     .getByLabel("Mortgage expense type")
@@ -166,4 +166,59 @@ test("phone widths, landscape and enlarged text fit all workspaces and forms", a
       .getByRole("dialog")
       .evaluate((el) => el.scrollWidth <= el.clientWidth),
   ).toBe(true);
+});
+
+test("all cash accounts and all mortgages combine only the forecast", async ({
+  page,
+}) => {
+  await open(page);
+  await addAccount(page);
+  await page
+    .getByRole("button", { name: "Add cash account", exact: true })
+    .click();
+  await page.getByLabel("Account name").fill("Current account");
+  await page.getByLabel("Opening balance", { exact: true }).fill("500000.00");
+  await page.getByLabel("Opening balance date").fill("2026-01-01");
+  await page.getByRole("button", { name: "Save cash account" }).click();
+  await nav(page, "payments");
+  for (const name of ["Mortgage", "Electricity"]) {
+    await page
+      .getByRole("button", { name: "Add payment", exact: true })
+      .first()
+      .click();
+    await page.getByLabel("Amount").fill("10000.00");
+    await page.getByLabel("Due date").fill("2026-12-01");
+    await page
+      .getByRole("combobox", { name: "Payment type", exact: true })
+      .selectOption({ label: name });
+    await page.getByRole("button", { name: "Save payment" }).click();
+  }
+  await nav(page, "forecast");
+  await page
+    .getByRole("combobox", { name: "Cash account", exact: true })
+    .selectOption({ label: "All cash accounts" });
+  await page.getByLabel("Balance date", { exact: true }).fill("2026-10-03");
+  await page.getByLabel("Through date").fill("2026-12-31");
+  await page
+    .getByLabel("Mortgage expense type")
+    .selectOption({ label: "All mortgages" });
+  await expect(page.getByText("Combined available cash · AED")).toBeVisible();
+  await expect(page.getByText(/1,480,000.00/)).toBeVisible();
+  await expect(page.getByText(/20,000.00/)).toBeVisible();
+  await page
+    .getByLabel("Mortgage expense type")
+    .selectOption({ label: "Mortgage" });
+  await expect(page.getByText(/1,490,000.00/)).toBeVisible();
+  await nav(page, "cash");
+  await page
+    .getByRole("combobox", { name: "Cash account", exact: true })
+    .selectOption({ label: "Savings · AED" });
+  await expect(page.getByText(/1,000,000.00/)).toBeVisible();
+  await expect(
+    page.getByRole("option", { name: "All cash accounts" }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("combobox", { name: "Cash account", exact: true })
+    .selectOption({ label: "Current account · AED" });
+  await expect(page.getByText(/500,000.00/)).toBeVisible();
 });

@@ -11,7 +11,7 @@ import {
   errorMessage,
   displayDate,
 } from "../payments/model";
-import { cashBalance, forecast, validateCashLinks } from "../cash/rules";
+import { cashBalances, forecast, validateCashLinks } from "../cash/rules";
 
 export function CashWorkspace({
   rows,
@@ -52,13 +52,23 @@ export function CashWorkspace({
       (a, b) =>
         b.data.date.localeCompare(a.data.date) || a.id.localeCompare(b.id),
     );
-  let balance: bigint | undefined,
+  const allAccounts = forecastOnly && selected === "all";
+  let balances: Record<string, bigint> = {},
     result: ReturnType<typeof forecast> | undefined,
     calculationError = "";
   try {
-    if (account) balance = cashBalance(account, rows, asOf);
+    if (account)
+      balances = cashBalances(allAccounts ? accounts : [account], rows, asOf);
     if (account && forecastOnly && mortgage)
-      result = forecast(account, rows, asOf, end, mortgage, rents, overdue);
+      result = forecast(
+        allAccounts ? accounts : account,
+        rows,
+        asOf,
+        end,
+        mortgage,
+        rents,
+        overdue,
+      );
   } catch (e) {
     calculationError = errorMessage(e);
   }
@@ -105,7 +115,7 @@ export function CashWorkspace({
           <label>
             Cash account
             <select
-              value={account?.id || ""}
+              value={allAccounts ? "all" : account?.id || ""}
               onChange={(e) => {
                 setSelected(e.target.value);
                 setEditor(undefined);
@@ -114,6 +124,9 @@ export function CashWorkspace({
               <option value="" disabled>
                 Choose an account
               </option>
+              {forecastOnly && !!accounts.length && (
+                <option value="all">All cash accounts</option>
+              )}
               {accounts.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.data.name} · {a.data.currency}
@@ -131,16 +144,18 @@ export function CashWorkspace({
             />
           </label>
         </div>
-        {balance !== undefined && (
-          <div className="total-card">
-            <span>Available cash · {account.data.currency}</span>
-            <strong>{money(balance, account.data.currency)}</strong>
+        {Object.entries(balances).map(([c, balance]) => (
+          <div className="total-card" key={c}>
+            <span>
+              {allAccounts ? "Combined available cash" : "Available cash"} · {c}
+            </span>
+            <strong>{money(balance, c)}</strong>
             <small>
               Opening balance plus entries through {displayDate(asOf)}. Later
               entries excluded.
             </small>
           </div>
-        )}
+        ))}
         {calculationError && (
           <p className="error" role="alert">
             {calculationError}
@@ -450,6 +465,7 @@ export function CashWorkspace({
               onChange={(e) => setMortgage(e.target.value)}
             >
               <option value="">Choose mortgage type</option>
+              <option value="all">All mortgages</option>
               {types
                 .filter((t) => t.data.direction !== "income")
                 .map((t) => (
@@ -459,6 +475,17 @@ export function CashWorkspace({
                 ))}
             </select>
           </label>
+          {mortgage === "all" && (
+            <p className="muted">
+              All mortgages includes every Expense payment type.
+            </p>
+          )}
+          {allAccounts && (
+            <p className="muted">
+              Accounts are combined by currency for this forecast. Each account
+              keeps its own cash ledger.
+            </p>
+          )}
           <fieldset>
             <legend>Rental income types</legend>
             {types
@@ -492,56 +519,71 @@ export function CashWorkspace({
             Include overdue rent and mortgage installments before the balance
             date
           </label>
-          {result && (
-            <>
-              <div className="totals-grid forecast-totals">
-                {[
-                  ["Available cash", result.available],
-                  ["Expected rent", result.rent],
-                  ["Unpaid mortgage", result.mortgage],
-                ].map(([label, value]) => (
-                  <div className="total-card" key={String(label)}>
-                    <span>
-                      {String(label)} · {result.currency}
-                    </span>
-                    <strong>{money(value as bigint, result.currency)}</strong>
-                  </div>
-                ))}
-              </div>
-              <div className="total-card">
-                <span>
-                  {result.closing >= 0n
-                    ? "Projected surplus"
-                    : "Amount to cover"}
-                </span>
-                <strong>
-                  {money(
-                    result.closing < 0n ? -result.closing : result.closing,
-                    result.currency,
-                  )}
-                </strong>
-                <small>
-                  Available cash + expected rent − unpaid mortgage.{" "}
-                  {overdue
-                    ? "Overdue amounts included."
-                    : "Overdue amounts excluded."}
-                </small>
-              </div>
-              <p>
-                Overdue rent: {money(result.overdueRent, result.currency)} ·
-                Overdue mortgage:{" "}
-                {money(result.overdueMortgage, result.currency)}
-              </p>
-              {result.otherCurrencies.map(([c, g]) => (
-                <p className="notice" key={c}>
-                  {c} is separate: expected rent {money(g.rent, c)}, unpaid
-                  mortgage {money(g.mortgage, c)}. Excluded from the{" "}
-                  {result.currency} balance; select a {c} cash account for its
-                  forecast.
+          {result &&
+            (allAccounts
+              ? [
+                  result,
+                  ...result.otherCurrencies.map(([c, g]) => ({
+                    ...g,
+                    currency: c,
+                    otherCurrencies: [],
+                  })),
+                ]
+              : [result]
+            ).map((result) => (
+              <section
+                key={result.currency}
+                aria-label={`Forecast in ${result.currency}`}
+              >
+                <div className="totals-grid forecast-totals">
+                  {[
+                    ["Available cash", result.available],
+                    ["Expected rent", result.rent],
+                    ["Unpaid mortgage", result.mortgage],
+                  ].map(([label, value]) => (
+                    <div className="total-card" key={String(label)}>
+                      <span>
+                        {String(label)} · {result.currency}
+                      </span>
+                      <strong>{money(value as bigint, result.currency)}</strong>
+                    </div>
+                  ))}
+                </div>
+                <div className="total-card">
+                  <span>
+                    {result.closing >= 0n
+                      ? "Projected surplus"
+                      : "Amount to cover"}
+                  </span>
+                  <strong>
+                    {money(
+                      result.closing < 0n ? -result.closing : result.closing,
+                      result.currency,
+                    )}
+                  </strong>
+                  <small>
+                    Available cash + expected rent − unpaid mortgage.{" "}
+                    {overdue
+                      ? "Overdue amounts included."
+                      : "Overdue amounts excluded."}
+                  </small>
+                </div>
+                <p>
+                  Overdue rent: {money(result.overdueRent, result.currency)} ·
+                  Overdue mortgage:{" "}
+                  {money(result.overdueMortgage, result.currency)}
                 </p>
-              ))}
-            </>
-          )}
+                {!allAccounts &&
+                  result.otherCurrencies.map(([c, g]) => (
+                    <p className="notice" key={c}>
+                      {c} is separate: expected rent {money(g.rent, c)}, unpaid
+                      mortgage {money(g.mortgage, c)}. Excluded from the{" "}
+                      {result.currency} balance; select a {c} cash account for
+                      its forecast.
+                    </p>
+                  ))}
+              </section>
+            ))}
         </section>
       )}
       {!forecastOnly && account && (
