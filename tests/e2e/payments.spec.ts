@@ -198,3 +198,66 @@ test("payment type names accept spaces and numbers and persist after reload", as
   await page.getByRole("button", { name: "Save type", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("60 characters");
 });
+
+test("duplicate a settled payment repeatedly offline, cancel and retain copies", async ({
+  page,
+  context,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Explore the local preview" }).click();
+  await page
+    .getByRole("button", { name: "Add payment", exact: true })
+    .first()
+    .click();
+  await page.getByLabel("Amount").fill("18750.00");
+  await page.getByLabel("Due date").fill("2026-11-01");
+  await page.getByLabel("Invoice date").fill("2026-11-01");
+  await page.getByLabel("Description").fill("Payment to duplicate");
+  await page.getByLabel("Reference code").fill("25%");
+  await page.getByLabel("Mark as paid").check();
+  await page.getByLabel("Payment date", { exact: true }).fill("2026-10-04");
+  await page
+    .getByLabel("Proof of payment")
+    .setInputFiles({
+      name: "copy-proof.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("%PDF-1.4\n%%EOF"),
+    });
+  await page.getByRole("button", { name: "Save payment" }).click();
+  await context.setOffline(true);
+  await page.getByRole("button", { name: /Payment to duplicate/ }).click();
+  await page
+    .getByRole("button", { name: "Duplicate payment", exact: true })
+    .click();
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByText("Payment duplicated, do you want to create another copy?"),
+  ).toBeVisible();
+  await expect(page.locator(".payment-row")).toHaveCount(2);
+  await page.getByRole("button", { name: "Yes", exact: true }).click();
+  await expect(page.locator(".payment-row")).toHaveCount(3);
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page
+    .getByRole("button", { name: /Payment to duplicate/ })
+    .first()
+    .click();
+  await expect(
+    page.getByRole("dialog").getByText("Paid", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Receipt available offline")).toBeVisible();
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(page.locator(".payment-row")).toHaveCount(2);
+  await page
+    .getByRole("button", { name: /Payment to duplicate/ })
+    .first()
+    .click();
+  await expect(page.getByText("Receipt available offline")).toBeVisible();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await context.setOffline(false);
+  await page.reload();
+  await page.getByRole("button", { name: "Explore the local preview" }).click();
+  await expect(page.locator(".payment-row")).toHaveCount(2);
+});

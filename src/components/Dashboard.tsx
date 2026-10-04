@@ -20,6 +20,7 @@ import {
   ArrowDown,
   Trash2,
   Pencil,
+  Copy,
   X,
 } from "lucide-react";
 import { cloud, configured } from "../auth/client";
@@ -38,6 +39,7 @@ import {
   errorMessage,
 } from "../payments/model";
 import { CashWorkspace } from "./CashWorkspace";
+import { duplicatePayment } from "../payments/duplicate";
 import { PaymentTypeForm } from "./PaymentTypeForm";
 import { PaymentForm } from "../components/PaymentForm";
 import { receipt } from "../attachments/service";
@@ -150,6 +152,9 @@ export function Dashboard({
     [filters, setFilters] = useState(false),
     [form, setForm] = useState<Row | null | undefined>(undefined),
     [details, setDetails] = useState<Row | null>(null),
+    [duplicateSource, setDuplicateSource] = useState<Row | null>(null),
+    [duplicating, setDuplicating] = useState(false),
+    [duplicateError, setDuplicateError] = useState(""),
     [typeEditor, setTypeEditor] = useState<Row | null | undefined>(undefined),
     [panel, setPanel] = useState(""),
     [error, setError] = useState(""),
@@ -160,15 +165,21 @@ export function Dashboard({
     ),
     [busy, setBusy] = useState(false),
     [offlineFiles, setOfflineFiles] = useState<Set<string>>(new Set());
+  const duplicateLock = useRef(false);
   useModal(
-    form !== undefined
-      ? "form"
-      : details
-        ? "details"
-        : typeEditor !== undefined
-          ? "type"
-          : false,
+    duplicateSource
+      ? "duplicate"
+      : form !== undefined
+        ? "form"
+        : details
+          ? "details"
+          : typeEditor !== undefined
+            ? "type"
+            : false,
     () => {
+      if (duplicateLock.current) return;
+      setDuplicateSource(null);
+      setDuplicateError("");
       setForm(undefined);
       setDetails(null);
       setTypeEditor(undefined);
@@ -250,6 +261,24 @@ export function Dashboard({
   async function save(rows: Row[], future: boolean) {
     const edits = planSeriesEdit(payments, rows[0], future);
     await a.change([...edits, ...rows.slice(1)]);
+  }
+  async function duplicate(source: Row) {
+    if (duplicateLock.current) return;
+    duplicateLock.current = true;
+    setDuplicating(true);
+    setDuplicateError("");
+    try {
+      if (!types.some((t) => t.id === source.data.typeId))
+        throw Error("This payment type is no longer available.");
+      await a.change([duplicatePayment(source)]);
+      setDetails(null);
+      setDuplicateSource(source);
+    } catch (e) {
+      setDuplicateError(errorMessage(e));
+    } finally {
+      duplicateLock.current = false;
+      setDuplicating(false);
+    }
   }
   async function viewReceipt(r: Row, download = false) {
     await act(async () => {
@@ -1198,6 +1227,44 @@ export function Dashboard({
           onClose={() => setForm(undefined)}
         />
       )}
+      {duplicateSource && (
+        <div className="overlay">
+          <section
+            className="dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="duplicate-title"
+          >
+            <header>
+              <h2 id="duplicate-title">Payment duplicated</h2>
+            </header>
+            <p>Payment duplicated, do you want to create another copy?</p>
+            {duplicateError && (
+              <p className="error" role="alert">
+                {duplicateError}
+              </p>
+            )}
+            <div className="actions">
+              <button
+                className="primary"
+                disabled={duplicating}
+                onClick={() => void duplicate(duplicateSource)}
+              >
+                {duplicating ? "Duplicating…" : "Yes"}
+              </button>
+              <button
+                disabled={duplicating}
+                onClick={() => {
+                  setDuplicateSource(null);
+                  setDuplicateError("");
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
       {details && (
         <div className="overlay">
           <section
@@ -1208,7 +1275,14 @@ export function Dashboard({
           >
             <header>
               <h2 id="detail-title">Payment details</h2>
-              <button onClick={() => setDetails(null)} aria-label="Close">
+              <button
+                disabled={duplicating}
+                onClick={() => {
+                  setDetails(null);
+                  setDuplicateError("");
+                }}
+                aria-label="Close"
+              >
                 <X />
               </button>
             </header>
@@ -1251,9 +1325,32 @@ export function Dashboard({
                 </div>
               </>
             )}
+            {duplicateError && (
+              <p className="error" role="alert">
+                {duplicateError}
+              </p>
+            )}
             <div className="actions detail-actions">
               <button
-                disabled={a.syncing}
+                disabled={duplicating}
+                onClick={() => {
+                  const latest = a.state.rows.find(
+                    (r) => r.id === details.id && !r.deleted,
+                  );
+                  if (!latest) {
+                    setDuplicateError(
+                      "This payment was deleted. Close the window and refresh.",
+                    );
+                    return;
+                  }
+                  void duplicate(latest);
+                }}
+              >
+                <Copy size={16} />
+                {duplicating ? "Duplicating…" : "Duplicate payment"}
+              </button>
+              <button
+                disabled={a.syncing || duplicating}
                 className="primary"
                 onClick={() => {
                   setForm(details);
@@ -1264,7 +1361,7 @@ export function Dashboard({
                 Edit payment
               </button>
               <button
-                disabled={a.syncing}
+                disabled={a.syncing || duplicating}
                 onClick={() =>
                   void act(async () => {
                     if (details.data.paid) {
@@ -1299,7 +1396,7 @@ export function Dashboard({
               </button>
               {details.data.seriesId && (
                 <button
-                  disabled={a.syncing}
+                  disabled={a.syncing || duplicating}
                   onClick={() =>
                     void act(async () => {
                       const anchor = details.data.anchor || details.data.due;
@@ -1338,7 +1435,7 @@ export function Dashboard({
               )}
               <button
                 className="danger"
-                disabled={a.syncing}
+                disabled={a.syncing || duplicating}
                 onClick={() => {
                   if (
                     confirm(

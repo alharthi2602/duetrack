@@ -320,3 +320,44 @@ describe.sequential("Cash backend protection", () => {
     await change(cash, "cash_account", data, 1, true);
   });
 });
+
+describe("Duplicate receipt ownership", () => {
+  it("keeps a shared immutable receipt while an independent copy still references it", async () => {
+    await user(alice);
+    const t = crypto.randomUUID(),
+      first = crypto.randomUUID(),
+      copy = crypto.randomUUID();
+    const attachment = {
+      id: "33333333-3333-4333-a333-333333333333",
+      name: "receipt.pdf",
+      mime: "application/pdf",
+      size: 10,
+    };
+    const data = {
+      ...payment,
+      typeId: t,
+      paid: true,
+      paymentDate: "2026-10-04",
+      attachment,
+    };
+    await change(t, "type", { name: "Copy test", order: 99 }, 0);
+    await change(first, "payment", data, 0);
+    await change(copy, "payment", data, 0);
+    await change(first, "payment", data, 1, true);
+    await db.exec("reset role");
+    const path = alice + "/" + attachment.id;
+    expect(
+      (
+        await db.query<{ claimed: boolean }>(
+          "select claim_receipt_cleanup($1,$2) as claimed",
+          [alice, path],
+        )
+      ).rows[0].claimed,
+    ).toBe(false);
+    await user(alice);
+    expect(
+      (await db.query<any>("select data from records where id=$1", [copy]))
+        .rows[0].data,
+    ).toEqual(data);
+  });
+});
