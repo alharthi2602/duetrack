@@ -224,3 +224,9 @@ export const isIncome = (types: Row[], typeId: string) =>
   );
 export const paymentStatus = (p: Payment, day: string, types: Row[]) =>
   p.paid && isIncome(types, p.typeId) ? "Received" : status(p, day);
+
+// Rounded to two decimal places using integer ratios, even for very large totals.
+export function totalPercentage(part: bigint, total: bigint) {
+  if (total === 0n) return "0.00%";
+  return (Number((part * 10000n + total / 2n) / total) / 100).toFixed(2) + "%";
+}

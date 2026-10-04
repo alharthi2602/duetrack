@@ -112,8 +112,10 @@ test("income status and total value do not change cash automatically", async ({
   await page.getByLabel("Mark as received").check();
   await page.getByLabel("Received date").fill("2026-10-03");
   await page.getByRole("button", { name: "Save payment" }).click();
+  if (page.viewportSize()!.width <= 800)
+    await page.locator(".views-toggle").click();
   await page
-    .locator(".tabs")
+    .locator(".view-list")
     .getByRole("button", { name: /Rental asset 1/ })
     .click();
   await expect(page.getByText("Total received · AED")).toBeVisible();

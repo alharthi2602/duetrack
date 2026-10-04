@@ -216,13 +216,11 @@ test("duplicate a settled payment repeatedly offline, cancel and retain copies",
   await page.getByLabel("Reference code").fill("25%");
   await page.getByLabel("Mark as paid").check();
   await page.getByLabel("Payment date", { exact: true }).fill("2026-10-04");
-  await page
-    .getByLabel("Proof of payment")
-    .setInputFiles({
-      name: "copy-proof.pdf",
-      mimeType: "application/pdf",
-      buffer: Buffer.from("%PDF-1.4\n%%EOF"),
-    });
+  await page.getByLabel("Proof of payment").setInputFiles({
+    name: "copy-proof.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("%PDF-1.4\n%%EOF"),
+  });
   await page.getByRole("button", { name: "Save payment" }).click();
   await context.setOffline(true);
   await page.getByRole("button", { name: /Payment to duplicate/ }).click();
@@ -260,4 +258,74 @@ test("duplicate a settled payment repeatedly offline, cancel and retain copies",
   await page.reload();
   await page.getByRole("button", { name: "Explore the local preview" }).click();
   await expect(page.locator(".payment-row")).toHaveCount(2);
+});
+
+test("vertical payment views and summary percentages follow asset and filter scope", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Explore the local preview" }).click();
+  for (const [amount, type, paid] of [
+    ["300.00", "Mortgage", false],
+    ["100.00", "Mortgage", true],
+    ["100.00", "Electricity", false],
+  ] as const) {
+    await page
+      .getByRole("button", { name: "Add payment", exact: true })
+      .first()
+      .click();
+    await page.getByLabel("Amount").fill(amount);
+    await page
+      .getByRole("combobox", { name: "Payment type", exact: true })
+      .selectOption({ label: type });
+    if (paid) await page.getByLabel("Mark as paid").check();
+    await page.getByRole("button", { name: "Save payment" }).click();
+  }
+  await expect(page.locator(".summary-unpaid .summary-percentage")).toHaveText(
+    "80.00% of total value",
+  );
+  await expect(page.locator(".summary-paid .summary-percentage")).toHaveText(
+    "20.00% of total value",
+  );
+  if (page.viewportSize()!.width <= 800) {
+    await expect(page.locator(".view-list")).toBeHidden();
+    await page.locator(".views-toggle").click();
+  }
+  await page
+    .locator(".view-list")
+    .getByRole("button", { name: /Mortgage/ })
+    .click();
+  await expect(page.locator(".summary-unpaid .summary-percentage")).toHaveText(
+    "75.00% of total value",
+  );
+  await expect(page.locator(".summary-paid .summary-percentage")).toHaveText(
+    "25.00% of total value",
+  );
+  if (page.viewportSize()!.width <= 800)
+    await expect(page.locator(".view-list")).toBeHidden();
+  await page.getByRole("button", { name: "Filters", exact: true }).click();
+  await page.getByRole("combobox", { name: "Status", exact: true }).selectOption("paid");
+  await expect(page.locator(".summary-paid .summary-percentage")).toHaveText(
+    "100.00% of total value",
+  );
+  await expect(page.locator(".summary-unpaid .summary-percentage")).toHaveText(
+    "0.00% of total value",
+  );
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await expect(page.locator(".summary-value")).toHaveCSS(
+    "background-color",
+    "rgb(27, 27, 29)",
+  );
+  await expect(page.locator(".summary-unpaid")).toHaveCSS(
+    "border-top-color",
+    "rgb(223, 119, 119)",
+  );
+  await expect(page.locator(".summary-paid")).toHaveCSS(
+    "border-top-color",
+    "rgb(103, 174, 131)",
+  );
 });

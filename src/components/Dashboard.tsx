@@ -35,6 +35,7 @@ import {
   money,
   displayDate,
   totals,
+  totalPercentage,
   sorted,
   errorMessage,
 } from "../payments/model";
@@ -144,6 +145,7 @@ export function Dashboard({
 }) {
   const a = useAccount(owner);
   const [tab, setTab] = useState("all"),
+    [viewsExpanded, setViewsExpanded] = useState(false),
     [query, setQuery] = useState(""),
     [filter, setFilter] = useState("all"),
     [typeFilter, setTypeFilter] = useState("all"),
@@ -447,305 +449,362 @@ export function Dashboard({
                 Add payment
               </button>
             </div>
-            <nav className="tabs" aria-label="Payment types">
-              <button
-                className={tab === "all" ? "selected" : ""}
-                onClick={() => setTab("all")}
-              >
-                <Wallet size={18} />
-                All payments<span>{payments.length}</span>
-              </button>
-              {types.map((t) => (
+            <div className="payment-layout">
+              <aside className="payment-views" aria-label="Payment views">
+                <h2>Payment views</h2>
                 <button
-                  key={t.id}
-                  className={tab === t.id ? "selected" : ""}
-                  onClick={() => setTab(t.id)}
+                  className="views-toggle"
+                  aria-expanded={viewsExpanded}
+                  aria-controls="payment-view-list"
+                  onClick={() => setViewsExpanded(!viewsExpanded)}
                 >
-                  {t.data.name === "Mortgage" ? (
-                    <Home size={18} />
-                  ) : t.data.name === "Electricity" ? (
-                    <Zap size={18} />
-                  ) : (
-                    <FileText size={18} />
-                  )}
-                  {t.data.name}
                   <span>
-                    {payments.filter((p) => p.data.typeId === t.id).length}
+                    Payment views<small>{title}</small>
                   </span>
+                  <SlidersHorizontal size={20} />
                 </button>
-              ))}
-              <button
-                onClick={() => setPanel("types")}
-                aria-label="Manage payment types"
-              >
-                <Plus size={18} />
-              </button>
-            </nav>
-            <div className="totals-label">
-              {filteredLabel} · totals by currency
-            </div>
-            <div className="totals-grid">
-              {Object.keys(sums).length ? (
-                Object.entries(sums).map(([currency, t]) => (
-                  <React.Fragment key={currency}>
-                    <div className="total-card unpaid">
-                      <div>
-                        <span>
-                          {incomeView ? "Expected rent" : "Total unpaid"} ·{" "}
-                          {currency}
-                        </span>
-                        <span className="metric-icon">
-                          <Wallet size={20} />
-                        </span>
-                      </div>
-                      <strong>{money(t.unpaid, currency)}</strong>
-                      <small>
-                        {
-                          filtered.filter(
-                            (r) => !r.data.paid && r.data.currency === currency,
-                          ).length
-                        }{" "}
-                        {incomeView ? "expected receipts" : "unpaid payments"}
-                      </small>
-                    </div>
-                    <div className="total-card">
-                      <div>
-                        <span>
-                          {incomeView ? "Total received" : "Total paid"} ·{" "}
-                          {currency}
-                        </span>
-                        <span className="metric-icon success">
-                          <Check size={20} />
-                        </span>
-                      </div>
-                      <strong>{money(t.paid, currency)}</strong>
-                      <small>
-                        {
-                          filtered.filter(
-                            (r) => r.data.paid && r.data.currency === currency,
-                          ).length
-                        }{" "}
-                        {incomeView ? "received payments" : "paid payments"}
-                      </small>
-                    </div>
-                    <div className="total-card">
-                      <span>Total value · {currency}</span>
-                      <strong>{money(t.paid + t.unpaid, currency)}</strong>
-                      <small>Paid / received + unpaid / expected</small>
-                    </div>
-                  </React.Fragment>
-                ))
-              ) : (
-                <>
-                  <div className="total-card unpaid">
-                    <span>{incomeView ? "Expected rent" : "Total unpaid"}</span>
-                    <strong>{money(0, a.prefs.currency)}</strong>
-                    <small>No payments in this view</small>
-                  </div>
-                  <div className="total-card">
-                    <span>{incomeView ? "Total received" : "Total paid"}</span>
-                    <strong>{money(0, a.prefs.currency)}</strong>
-                    <small>No payments in this view</small>
-                  </div>
-                  <div className="total-card">
-                    <span>Total value</span>
-                    <strong>{money(0, a.prefs.currency)}</strong>
-                    <small>No payments in this view</small>
-                  </div>
-                </>
-              )}
-            </div>
-            <section className="payment-list">
-              <div className="list-heading">
-                <div>
-                  <h2>{title}</h2>
-                  <span className="muted">
-                    {filtered.length} payments · nearest unpaid first
-                  </span>
-                </div>
-                <div className="search-tools">
-                  <label className="search">
-                    <Search size={18} />
-                    <input
-                      aria-label="Search payments"
-                      placeholder="Search payments…"
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                    />
-                  </label>
+                <nav
+                  id="payment-view-list"
+                  className="view-list"
+                  data-expanded={viewsExpanded}
+                  aria-label="Payment types"
+                >
                   <button
-                    className={
-                      filters ? "filter-button selected" : "filter-button"
-                    }
-                    aria-label="Filters"
-                    aria-expanded={filters}
-                    onClick={() => setFilters(!filters)}
-                  >
-                    <SlidersHorizontal size={18} />
-                    <span>Filters</span>
-                  </button>
-                </div>
-              </div>
-              {filters && (
-                <div className="filters">
-                  <label>
-                    Type
-                    <select
-                      value={typeFilter}
-                      onChange={(e) => setTypeFilter(e.target.value)}
-                    >
-                      <option value="all">All types</option>
-                      {types.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.data.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Status
-                    <select
-                      value={filter}
-                      onChange={(e) => setFilter(e.target.value)}
-                    >
-                      <option value="all">All statuses</option>
-                      <option value="unpaid">Unpaid / expected</option>
-                      <option value="paid">Paid / received</option>
-                      <option value="overdue">Overdue</option>
-                    </select>
-                  </label>
-                  <label>
-                    Due from
-                    <input
-                      type="date"
-                      value={from}
-                      onChange={(e) => setFrom(e.target.value)}
-                    />
-                  </label>
-                  <label>
-                    Due through
-                    <input
-                      type="date"
-                      value={to}
-                      min={from}
-                      onChange={(e) => setTo(e.target.value)}
-                    />
-                  </label>
-                  <button
+                    className={tab === "all" ? "selected" : ""}
+                    aria-current={tab === "all" ? "page" : undefined}
                     onClick={() => {
-                      setFilter("all");
-                      setTypeFilter("all");
-                      setFrom("");
-                      setTo("");
-                      setQuery("");
+                      setTab("all");
+                      setViewsExpanded(false);
                     }}
                   >
-                    Clear
+                    <Wallet size={18} />
+                    All payments<span>{payments.length}</span>
                   </button>
-                </div>
-              )}
-              <div className="table-heading">
-                <span>PAYMENT</span>
-                <span>DUE DATE</span>
-                <span>STATUS</span>
-                <span>AMOUNT</span>
-                <span />
-              </div>
-              {filtered.length ? (
-                filtered.map((r) => {
-                  const p = r.data as Payment,
-                    s = paymentStatus(p, day, types),
-                    name = types.find((t) => t.id === p.typeId)?.data.name;
-                  const pending = a.state.pending.find((x) => x.id === r.id);
-                  return (
+                  {types.map((t) => (
                     <button
-                      className="payment-row"
-                      key={r.id}
-                      onClick={() => setDetails(r)}
+                      key={t.id}
+                      className={tab === t.id ? "selected" : ""}
+                      aria-current={tab === t.id ? "page" : undefined}
+                      onClick={() => {
+                        setTab(t.id);
+                        setViewsExpanded(false);
+                      }}
                     >
-                      <span className="payment-name">
-                        <span
-                          className={`type-icon ${name === "Electricity" ? "electricity" : ""}`}
-                        >
-                          {name === "Mortgage" ? (
-                            <Home size={20} />
-                          ) : name === "Electricity" ? (
-                            <Zap size={20} />
-                          ) : (
-                            <FileText size={20} />
-                          )}
-                        </span>
-                        <span>
-                          <strong>{p.description || name}</strong>
-                          <small>
-                            {name}
-                            {p.reference ? " · " + p.reference : ""}
-                            {p.recurrence !== "none" ? " · Repeats" : ""}
-                            {p.attachment ? " · Receipt" : ""}
-                          </small>
-                        </span>
+                      {t.data.name === "Mortgage" ? (
+                        <Home size={18} />
+                      ) : t.data.name === "Electricity" ? (
+                        <Zap size={18} />
+                      ) : (
+                        <FileText size={18} />
+                      )}
+                      <span className="view-name">{t.data.name}</span>
+                      <span className="view-count">
+                        {payments.filter((p) => p.data.typeId === t.id).length}
                       </span>
-                      <span className="due-date">
-                        {displayDate(p.due)}
-                        <small>
-                          {pending
-                            ? pending.error
-                              ? "Sync failed"
-                              : "Pending sync"
-                            : owner === "demo"
-                              ? "Local"
-                              : "Saved"}
-                        </small>
-                      </span>
-                      <span
-                        className={`badge ${s.toLowerCase().replace(" ", "-")}`}
-                      >
-                        {(s === "Paid" || s === "Received") && (
-                          <Check size={13} />
-                        )}{" "}
-                        {s}
-                      </span>
-                      <strong className="row-amount">
-                        {money(p.amount, p.currency)}
-                      </strong>
-                      <ChevronRight size={18} />
                     </button>
-                  );
-                })
-              ) : (
-                <div className="empty">
-                  <span className="empty-icon">
-                    <Wallet size={28} />
-                  </span>
-                  <h3>
-                    {payments.length
-                      ? "No matching payments"
-                      : "A fresh start for your payments"}
-                  </h3>
-                  <p>
-                    {payments.length
-                      ? "Try adjusting your search or filters."
-                      : "Add your first payment to see what’s coming up."}
-                  </p>
+                  ))}
                   <button
-                    className="primary"
-                    disabled={!types.length || a.syncing}
-                    onClick={() => setForm(null)}
+                    onClick={() => setPanel("types")}
+                    aria-label="Manage payment types"
                   >
-                    <Plus size={18} />
-                    Add payment
+                    <Plus size={18} /> Manage payment types
                   </button>
+                </nav>
+              </aside>
+              <div className="payment-content">
+                <div className="totals-label">
+                  {filteredLabel} · totals by currency
                 </div>
-              )}
-            </section>
-            <p className="page-foot">
-              Dates follow {a.prefs.timezone}.{" "}
-              {owner === "demo"
-                ? "Preview data stays on this device."
-                : a.state.pending.length
-                  ? `${a.state.pending.length} changes pending`
-                  : "Your payments are saved to your account."}
-            </p>
+                <div className="totals-grid payment-summary-grid">
+                  {Object.keys(sums).length ? (
+                    Object.entries(sums).map(([currency, t]) => (
+                      <React.Fragment key={currency}>
+                        <div className="total-card payment-summary summary-unpaid">
+                          <div>
+                            <span>
+                              {incomeView ? "Expected rent" : "Total unpaid"} ·{" "}
+                              {currency}
+                            </span>
+                            <span className="metric-icon">
+                              <Wallet size={20} />
+                            </span>
+                          </div>
+                          <strong>{money(t.unpaid, currency)}</strong>
+                          <p className="summary-percentage">
+                            <b>
+                              {totalPercentage(t.unpaid, t.paid + t.unpaid)}
+                            </b>{" "}
+                            of total value
+                          </p>
+                          <small>
+                            {
+                              filtered.filter(
+                                (r) =>
+                                  !r.data.paid && r.data.currency === currency,
+                              ).length
+                            }{" "}
+                            {incomeView
+                              ? "expected receipts"
+                              : "unpaid payments"}
+                          </small>
+                        </div>
+                        <div className="total-card payment-summary summary-paid">
+                          <div>
+                            <span>
+                              {incomeView ? "Total received" : "Total paid"} ·{" "}
+                              {currency}
+                            </span>
+                            <span className="metric-icon success">
+                              <Check size={20} />
+                            </span>
+                          </div>
+                          <strong>{money(t.paid, currency)}</strong>
+                          <p className="summary-percentage">
+                            <b>{totalPercentage(t.paid, t.paid + t.unpaid)}</b>{" "}
+                            of total value
+                          </p>
+                          <small>
+                            {
+                              filtered.filter(
+                                (r) =>
+                                  r.data.paid && r.data.currency === currency,
+                              ).length
+                            }{" "}
+                            {incomeView ? "received payments" : "paid payments"}
+                          </small>
+                        </div>
+                        <div className="total-card payment-summary summary-value">
+                          <span>Total value · {currency}</span>
+                          <strong>{money(t.paid + t.unpaid, currency)}</strong>
+                          <small>Paid / received + unpaid / expected</small>
+                        </div>
+                      </React.Fragment>
+                    ))
+                  ) : (
+                    <>
+                      <div className="total-card payment-summary summary-unpaid">
+                        <span>
+                          {incomeView ? "Expected rent" : "Total unpaid"}
+                        </span>
+                        <strong>{money(0, a.prefs.currency)}</strong>
+                        <p className="summary-percentage">
+                          <b>0.00%</b> of total value
+                        </p>
+                        <small>No payments in this view</small>
+                      </div>
+                      <div className="total-card payment-summary summary-paid">
+                        <span>
+                          {incomeView ? "Total received" : "Total paid"}
+                        </span>
+                        <strong>{money(0, a.prefs.currency)}</strong>
+                        <p className="summary-percentage">
+                          <b>0.00%</b> of total value
+                        </p>
+                        <small>No payments in this view</small>
+                      </div>
+                      <div className="total-card payment-summary summary-value">
+                        <span>Total value</span>
+                        <strong>{money(0, a.prefs.currency)}</strong>
+                        <small>No payments in this view</small>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <section className="payment-list">
+                  <div className="list-heading">
+                    <div>
+                      <h2>{title}</h2>
+                      <span className="muted">
+                        {filtered.length} payments · nearest unpaid first
+                      </span>
+                    </div>
+                    <div className="search-tools">
+                      <label className="search">
+                        <Search size={18} />
+                        <input
+                          aria-label="Search payments"
+                          placeholder="Search payments…"
+                          value={query}
+                          onChange={(e) => setQuery(e.target.value)}
+                        />
+                      </label>
+                      <button
+                        className={
+                          filters ? "filter-button selected" : "filter-button"
+                        }
+                        aria-label="Filters"
+                        aria-expanded={filters}
+                        onClick={() => setFilters(!filters)}
+                      >
+                        <SlidersHorizontal size={18} />
+                        <span>Filters</span>
+                      </button>
+                    </div>
+                  </div>
+                  {filters && (
+                    <div className="filters">
+                      <label>
+                        Type
+                        <select
+                          value={typeFilter}
+                          onChange={(e) => setTypeFilter(e.target.value)}
+                        >
+                          <option value="all">All types</option>
+                          {types.map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {t.data.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Status
+                        <select
+                          value={filter}
+                          onChange={(e) => setFilter(e.target.value)}
+                        >
+                          <option value="all">All statuses</option>
+                          <option value="unpaid">Unpaid / expected</option>
+                          <option value="paid">Paid / received</option>
+                          <option value="overdue">Overdue</option>
+                        </select>
+                      </label>
+                      <label>
+                        Due from
+                        <input
+                          type="date"
+                          value={from}
+                          onChange={(e) => setFrom(e.target.value)}
+                        />
+                      </label>
+                      <label>
+                        Due through
+                        <input
+                          type="date"
+                          value={to}
+                          min={from}
+                          onChange={(e) => setTo(e.target.value)}
+                        />
+                      </label>
+                      <button
+                        onClick={() => {
+                          setFilter("all");
+                          setTypeFilter("all");
+                          setFrom("");
+                          setTo("");
+                          setQuery("");
+                        }}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  )}
+                  <div className="table-heading">
+                    <span>PAYMENT</span>
+                    <span>DUE DATE</span>
+                    <span>STATUS</span>
+                    <span>AMOUNT</span>
+                    <span />
+                  </div>
+                  {filtered.length ? (
+                    filtered.map((r) => {
+                      const p = r.data as Payment,
+                        s = paymentStatus(p, day, types),
+                        name = types.find((t) => t.id === p.typeId)?.data.name;
+                      const pending = a.state.pending.find(
+                        (x) => x.id === r.id,
+                      );
+                      return (
+                        <button
+                          className="payment-row"
+                          key={r.id}
+                          onClick={() => setDetails(r)}
+                        >
+                          <span className="payment-name">
+                            <span
+                              className={`type-icon ${name === "Electricity" ? "electricity" : ""}`}
+                            >
+                              {name === "Mortgage" ? (
+                                <Home size={20} />
+                              ) : name === "Electricity" ? (
+                                <Zap size={20} />
+                              ) : (
+                                <FileText size={20} />
+                              )}
+                            </span>
+                            <span>
+                              <strong>{p.description || name}</strong>
+                              <small>
+                                {name}
+                                {p.reference ? " · " + p.reference : ""}
+                                {p.recurrence !== "none" ? " · Repeats" : ""}
+                                {p.attachment ? " · Receipt" : ""}
+                              </small>
+                            </span>
+                          </span>
+                          <span className="due-date">
+                            {displayDate(p.due)}
+                            <small>
+                              {pending
+                                ? pending.error
+                                  ? "Sync failed"
+                                  : "Pending sync"
+                                : owner === "demo"
+                                  ? "Local"
+                                  : "Saved"}
+                            </small>
+                          </span>
+                          <span
+                            className={`badge ${s.toLowerCase().replace(" ", "-")}`}
+                          >
+                            {(s === "Paid" || s === "Received") && (
+                              <Check size={13} />
+                            )}{" "}
+                            {s}
+                          </span>
+                          <strong className="row-amount">
+                            {money(p.amount, p.currency)}
+                          </strong>
+                          <ChevronRight size={18} />
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="empty">
+                      <span className="empty-icon">
+                        <Wallet size={28} />
+                      </span>
+                      <h3>
+                        {payments.length
+                          ? "No matching payments"
+                          : "A fresh start for your payments"}
+                      </h3>
+                      <p>
+                        {payments.length
+                          ? "Try adjusting your search or filters."
+                          : "Add your first payment to see what’s coming up."}
+                      </p>
+                      <button
+                        className="primary"
+                        disabled={!types.length || a.syncing}
+                        onClick={() => setForm(null)}
+                      >
+                        <Plus size={18} />
+                        Add payment
+                      </button>
+                    </div>
+                  )}
+                </section>
+                <p className="page-foot">
+                  Dates follow {a.prefs.timezone}.{" "}
+                  {owner === "demo"
+                    ? "Preview data stays on this device."
+                    : a.state.pending.length
+                      ? `${a.state.pending.length} changes pending`
+                      : "Your payments are saved to your account."}
+                </p>
+              </div>
+            </div>
           </>
         ) : panel === "cash" || panel === "forecast" ? (
           a.advanced ? (
@@ -779,7 +838,9 @@ export function Dashboard({
             <div className="page-heading">
               <div>
                 <h1>Payment types</h1>
-                <p className="muted">Organize your tabs to fit your life.</p>
+                <p className="muted">
+                  Organize your payment views to fit your life.
+                </p>
               </div>
               <button
                 className="primary"
