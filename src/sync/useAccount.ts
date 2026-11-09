@@ -5,6 +5,7 @@ import {
   Snapshot,
   readAccount,
   saveAccount,
+  filePut,
   queue,
   clearAccount,
   cleanLocalFiles,
@@ -27,16 +28,22 @@ export function useAccount(owner: string) {
   const closing = useRef(false);
   const demo = owner === "demo";
   const [advanced, setAdvanced] = useState(
-    owner === "demo" || localStorage.getItem("duetrack-schema-version") === "2",
+    owner === "demo" || ["2","3"].includes(localStorage.getItem("duetrack-schema-version") || ""),
   );
   const advancedRef = useRef(advanced);
+  const [cashAttachments, setCashAttachments] = useState(demo || localStorage.getItem("duetrack-schema-version") === "3");
+  const cashAttachmentsRef = useRef(cashAttachments);
   async function checkCapabilities() {
-    if (demo || advancedRef.current || !cloud || !navigator.onLine) return;
+    if (demo || cashAttachmentsRef.current || !cloud || !navigator.onLine) return;
     const { data, error } = await cloud.rpc("duetrack_capabilities");
     if (!error && data?.cash && data?.income && mounted.current) {
       advancedRef.current = true;
       setAdvanced(true);
-      localStorage.setItem("duetrack-schema-version", "2");
+      if (data.cashAttachments) {
+        cashAttachmentsRef.current = true;
+        setCashAttachments(true);
+      }
+      localStorage.setItem("duetrack-schema-version", data.cashAttachments ? "3" : "2");
     }
   }
   async function commit(s: Snapshot) {
@@ -87,8 +94,9 @@ export function useAccount(owner: string) {
       setProgress(0);
     }
   }
-  async function change(rows: Row[]) {
+  async function change(rows: Row[], files: {id: string; blob: Blob}[] = []) {
     const validated = rows.map(validateRow);
+    if (!cashAttachmentsRef.current && validated.some(r => !r.deleted && (r.kind === "cash_account" || r.kind === "cash_entry") && r.data.attachment)) throw Error("Apply Supabase migration 003_cash_attachments.sql before adding cash attachments.");
     if (
       !advancedRef.current &&
       validated.some(
@@ -104,6 +112,7 @@ export function useAccount(owner: string) {
     await operations.current(async () => {
       if (!mounted.current || closing.current)
         throw Error("The account is signing out. Please sign in again.");
+      for (const file of files) await filePut(owner, file.id, file.blob);
       let s = current.current;
       for (const r of validated) s = queue(s, r);
       if (demo) s = { rows: s.rows, pending: [] };
@@ -219,6 +228,7 @@ export function useAccount(owner: string) {
     error,
     progress,
     advanced,
+    cashAttachments,
     prefs,
     change,
     sync,

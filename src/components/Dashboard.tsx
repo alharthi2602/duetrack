@@ -76,6 +76,7 @@ function ConflictSummary({ row }: { row: Row }) {
           ["Description", row.data.description || "—"],
           ["Account", row.data.accountId],
           ["Status", row.deleted ? "Deleted" : "Active"],
+          ["Attachment", row.data.attachment?.name || "None"],
         ].map(([label, value]) => (
           <div key={label}>
             <dt>{label}</dt>
@@ -95,6 +96,7 @@ function ConflictSummary({ row }: { row: Row }) {
           ],
           ["Opening date", displayDate(row.data.openingDate)],
           ["Status", row.deleted ? "Deleted" : "Active"],
+          ["Attachment", row.data.attachment?.name || "None"],
         ].map(([label, value]) => (
           <div key={label}>
             <dt>{label}</dt>
@@ -813,6 +815,8 @@ export function Dashboard({
               day={day}
               currency={a.prefs.currency}
               change={a.change}
+              owner={owner}
+              attachmentsEnabled={a.cashAttachments}
               forecastOnly={panel === "forecast"}
             />
           ) : (

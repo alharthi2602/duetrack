@@ -170,7 +170,7 @@ test("phone widths, landscape and enlarged text fit all workspaces and forms", a
   ).toBe(true);
 });
 
-test("all cash accounts and all mortgages combine only the forecast", async ({
+test("cash account checkboxes select any subset and keep individual ledgers", async ({
   page,
 }) => {
   await open(page);
@@ -182,6 +182,13 @@ test("all cash accounts and all mortgages combine only the forecast", async ({
   await page.getByLabel("Opening balance", { exact: true }).fill("500000.00");
   await page.getByLabel("Opening balance date").fill("2026-01-01");
   await page.getByRole("button", { name: "Save cash account" }).click();
+  await expect(page.getByRole("heading",{name:"Add cash account",exact:true})).toHaveCount(0);
+  await page.getByRole("button",{name:"Add cash account",exact:true}).click();
+  await page.getByLabel("Account name").fill("Reserve account");
+  await page.getByLabel("Opening balance",{exact:true}).fill("200000.00");
+  await page.getByLabel("Opening balance date").fill("2026-01-01");
+  await page.getByRole("button",{name:"Save cash account"}).click();
+  await expect(page.getByRole("heading",{name:"Add cash account",exact:true})).toHaveCount(0);
   await nav(page, "payments");
   for (const name of ["Mortgage", "Electricity"]) {
     await page
@@ -196,9 +203,10 @@ test("all cash accounts and all mortgages combine only the forecast", async ({
     await page.getByRole("button", { name: "Save payment" }).click();
   }
   await nav(page, "forecast");
-  await page
-    .getByRole("combobox", { name: "Cash account", exact: true })
-    .selectOption({ label: "All cash accounts" });
+  const choices = page.getByRole("group", {name:"Cash accounts", exact:true});
+  await expect(page.getByRole("combobox", {name:"Cash account",exact:true})).toHaveCount(0);
+  await choices.getByRole("button", {name:"Select all",exact:true}).click();
+  await choices.getByRole("checkbox",{name:"Reserve account · AED",exact:true}).uncheck();
   await page.getByLabel("Balance date", { exact: true }).fill("2026-10-03");
   await page.getByLabel("Through date").fill("2026-12-31");
   await page
@@ -211,6 +219,15 @@ test("all cash accounts and all mortgages combine only the forecast", async ({
     .getByLabel("Mortgage expense type")
     .selectOption({ label: "Mortgage" });
   await expect(page.getByText(/1,490,000.00/)).toBeVisible();
+  await choices.getByRole("checkbox", {name:"Current account · AED",exact:true}).uncheck();
+  await expect(page.getByText(/990,000.00/)).toBeVisible();
+  await choices.getByRole("button", {name:"Clear",exact:true}).click();
+  await expect(page.getByText("Select at least one cash account to calculate the forecast.")).toBeVisible();
+  await expect(page.getByText("Projected surplus", {exact:true})).toHaveCount(0);
+  await choices.getByRole("checkbox", {name:"Current account · AED",exact:true}).check();
+  await expect(page.getByText(/490,000.00/)).toBeVisible();
+  await choices.getByRole("button",{name:"Select all",exact:true}).click();
+  await expect(page.getByText(/1,690,000.00/)).toBeVisible();
   await nav(page, "cash");
   await page
     .getByRole("combobox", { name: "Cash account", exact: true })
@@ -223,4 +240,39 @@ test("all cash accounts and all mortgages combine only the forecast", async ({
     .getByRole("combobox", { name: "Cash account", exact: true })
     .selectOption({ label: "Current account · AED" });
   await expect(page.getByText(/500,000.00/)).toBeVisible();
+});
+
+test("cash account and entry proof survives offline use, replacement and backup restore",async({page,context})=>{
+ await open(page); await nav(page,"cash");
+ const pdf=(name:string)=>({name,mimeType:"application/pdf",buffer:Buffer.from("%PDF-1.4\\n%%EOF")});
+ await page.getByRole("button",{name:"Add cash account",exact:true}).click();
+ await page.getByLabel("Account name").fill("Bank savings");
+ await page.getByLabel("Opening balance",{exact:true}).fill("1000.00");
+ await page.getByLabel("Opening balance date").fill("2026-01-01");
+ await page.getByLabel("Cash attachment",{exact:true}).setInputFiles(pdf("statement.pdf"));
+ await page.getByRole("button",{name:"Save cash account"}).click();
+ const accountProof=page.getByRole("region",{name:"Attachment for Bank savings",exact:true});
+ await expect(accountProof.getByText("statement.pdf")).toBeVisible();
+ await page.getByRole("button",{name:"Add cash entry",exact:true}).click();
+ await page.getByLabel("Cash amount").fill("100.00");await page.getByLabel("Cash description").fill("Service charge");
+ await page.getByLabel("Cash attachment",{exact:true}).setInputFiles(pdf("invoice.pdf"));
+ await page.getByRole("button",{name:"Save cash entry"}).click();
+ const entryProof=page.getByRole("region",{name:"Attachment for Service charge",exact:true});
+ await expect(entryProof.getByText("invoice.pdf")).toBeVisible();
+ await context.setOffline(true);
+ let downloaded=page.waitForEvent("download");
+ await accountProof.getByRole("button",{name:"Download attachment",exact:true}).click();expect((await downloaded).suggestedFilename()).toBe("statement.pdf");
+ downloaded=page.waitForEvent("download");
+ await entryProof.getByRole("button",{name:"Download attachment",exact:true}).click();expect((await downloaded).suggestedFilename()).toBe("invoice.pdf");
+ await page.getByRole("button",{name:"Edit cash entry Service charge",exact:true}).click();
+ await page.getByLabel("Cash attachment",{exact:true}).setInputFiles(pdf("replacement.pdf"));
+ await page.getByRole("button",{name:"Save cash entry"}).click();
+ await expect(entryProof.getByText("replacement.pdf")).toBeVisible();
+ await context.setOffline(false);
+ await nav(page,"settings");downloaded=page.waitForEvent("download");await page.getByRole("button",{name:"Export backup",exact:true}).click();const path=await(await downloaded).path();
+ await page.getByLabel("Import backup").setInputFiles(path!);page.once("dialog",d=>d.accept());await page.getByRole("button",{name:"Merge",exact:true}).click();
+ await nav(page,"cash");await expect(accountProof.getByText("statement.pdf")).toBeVisible();await expect(entryProof.getByText("replacement.pdf")).toBeVisible();
+ await page.getByRole("button",{name:"Edit cash entry Service charge",exact:true}).click();await page.getByLabel("Remove current attachment").check();await page.getByRole("button",{name:"Save cash entry"}).click();await expect(entryProof).toHaveCount(0);
+ await page.getByRole("button",{name:"Edit cash account",exact:true}).click();await page.getByLabel("Remove current attachment").check();await page.getByRole("button",{name:"Save cash account"}).click();await expect(accountProof).toHaveCount(0);
+ await page.reload();await page.getByRole("button",{name:"Explore the local preview"}).click();await nav(page,"cash");await expect(page.getByText("Service charge",{exact:false})).toBeVisible();await expect(accountProof).toHaveCount(0);await expect(entryProof).toHaveCount(0);
 });
