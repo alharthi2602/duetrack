@@ -1,6 +1,10 @@
 import { useState } from "react";
+import { metadata, receipt } from "../attachments/service";
+import { CashAttachmentField, CashAttachmentLinks } from "./CashAttachment";
+import { CashAccountSelection } from "./CashAccountSelection";
 import {
   Row,
+  Payment,
   money,
   amountInput,
   minorUnits,
@@ -18,17 +22,22 @@ export function CashWorkspace({
   day,
   currency,
   change,
+  owner,
+  attachmentsEnabled = false,
   forecastOnly = false,
 }: {
   rows: Row[];
   day: string;
   currency: string;
-  change: (r: Row[]) => Promise<void>;
+  change: (r: Row[], files?: {id: string; blob: Blob}[]) => Promise<void>;
+  owner: string;
+  attachmentsEnabled?: boolean;
   forecastOnly?: boolean;
 }) {
   const accounts = rows.filter((r) => r.kind === "cash_account" && !r.deleted);
   const types = rows.filter((r) => r.kind === "type" && !r.deleted);
   const [selected, setSelected] = useState("");
+  const [forecastIds, setForecastIds] = useState<string[] | null>(null);
   const account = accounts.find((r) => r.id === selected) || accounts[0];
   const [editor, setEditor] = useState<{
     kind: "cash_account" | "cash_entry";
@@ -52,16 +61,17 @@ export function CashWorkspace({
       (a, b) =>
         b.data.date.localeCompare(a.data.date) || a.id.localeCompare(b.id),
     );
-  const allAccounts = forecastOnly && selected === "all";
+  const forecastAccounts = forecastIds === null ? (account ? [account] : []) : accounts.filter(a => forecastIds.includes(a.id));
+  const combinedAccounts = forecastOnly && forecastAccounts.length > 1;
+  const balanceAccounts = forecastOnly ? forecastAccounts : account ? [account] : [];
   let balances: Record<string, bigint> = {},
     result: ReturnType<typeof forecast> | undefined,
     calculationError = "";
   try {
-    if (account)
-      balances = cashBalances(allAccounts ? accounts : [account], rows, asOf);
-    if (account && forecastOnly && mortgage)
+    balances = cashBalances(balanceAccounts, rows, asOf);
+    if (forecastAccounts.length && forecastOnly && mortgage)
       result = forecast(
-        allAccounts ? accounts : account,
+        forecastAccounts,
         rows,
         asOf,
         end,
@@ -71,6 +81,17 @@ export function CashWorkspace({
       );
   } catch (e) {
     calculationError = errorMessage(e);
+  }
+  async function openAttachment(attachment: NonNullable<Payment["attachment"]>, download: boolean) {
+    setError("");
+    try {
+      const blob = await receipt(owner, attachment);
+      const url = URL.createObjectURL(blob);
+      if (download) {
+        const link = document.createElement("a"); link.href = url; link.download = attachment.name; link.click();
+      } else window.open(url, "_blank", "noopener");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch(e) {setError(errorMessage(e));}
   }
   async function remove(r: Row) {
     if (
@@ -112,28 +133,14 @@ export function CashWorkspace({
       )}
       <section className="settings-card">
         <div className="form-grid">
-          <label>
-            Cash account
-            <select
-              value={allAccounts ? "all" : account?.id || ""}
-              onChange={(e) => {
-                setSelected(e.target.value);
-                setEditor(undefined);
-              }}
-            >
-              <option value="" disabled>
-                Choose an account
-              </option>
-              {forecastOnly && !!accounts.length && (
-                <option value="all">All cash accounts</option>
-              )}
-              {accounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.data.name} · {a.data.currency}
-                </option>
-              ))}
-            </select>
-          </label>
+          {forecastOnly ? <CashAccountSelection accounts={accounts} selected={forecastAccounts.map(a => a.id)} onChange={setForecastIds} /> : (
+            <label>Cash account
+              <select value={account?.id || ""} onChange={e => {setSelected(e.target.value);setEditor(undefined);}}>
+                <option value="" disabled>Choose an account</option>
+                {accounts.map(a => <option key={a.id} value={a.id}>{a.data.name} · {a.data.currency}</option>)}
+              </select>
+            </label>
+          )}
           <label>
             Balance date
             <input
@@ -147,7 +154,7 @@ export function CashWorkspace({
         {Object.entries(balances).map(([c, balance]) => (
           <div className="total-card" key={c}>
             <span>
-              {allAccounts ? "Combined available cash" : "Available cash"} · {c}
+              {combinedAccounts ? "Combined available cash" : "Available cash"} · {c}
             </span>
             <strong>{money(balance, c)}</strong>
             <small>
@@ -161,6 +168,7 @@ export function CashWorkspace({
             {calculationError}
           </p>
         )}
+        {!forecastOnly && account?.data.attachment && <CashAttachmentLinks attachment={account.data.attachment} label={account.data.name} onView={download => void openAttachment(account.data.attachment,download)} />}
         {!forecastOnly && (
           <div className="actions ledger-actions">
             <button onClick={() => setEditor({ kind: "cash_account" })}>
@@ -212,6 +220,15 @@ export function CashWorkspace({
               setSaving(true);
               setError("");
               try {
+                let attachment = editor.row?.data.attachment;
+                const file = f.get("attachment");
+                let attachmentFile: File | undefined;
+                if (f.get("removeAttachment")) attachment = undefined;
+                if (file instanceof File && file.name) {
+                  if (!attachmentsEnabled) throw Error("Apply Supabase migration 003_cash_attachments.sql before adding cash attachments.");
+                  attachment = metadata(file);
+                  attachmentFile = file;
+                }
                 const c =
                   editor.kind === "cash_account"
                     ? String(f.get("currency"))
@@ -219,6 +236,7 @@ export function CashWorkspace({
                 const data =
                   editor.kind === "cash_account"
                     ? cashAccountSchema.parse({
+                        attachment,
                         name: f.get("name"),
                         currency: c,
                         openingDate: f.get("openingDate"),
@@ -228,6 +246,7 @@ export function CashWorkspace({
                         ),
                       })
                     : cashEntrySchema.parse({
+                        attachment,
                         accountId: account.id,
                         currency: c,
                         direction: f.get("direction"),
@@ -269,7 +288,7 @@ export function CashWorkspace({
                     "Once entries exist, keep the opening balance unchanged and use an adjustment entry.",
                   );
                 validateCashLinks(r, rows);
-                await change([r]);
+                await change([r], attachmentFile && attachment ? [{id: attachment.id, blob: attachmentFile}] : []);
                 setSelected(editor.kind === "cash_account" ? r.id : account.id);
                 setEditor(undefined);
               } catch (e) {
@@ -421,6 +440,7 @@ export function CashWorkspace({
                 </p>
               </>
             )}
+            <CashAttachmentField attachment={editor.row?.data.attachment} enabled={attachmentsEnabled} />
             <div className="actions">
               <button
                 type="button"
@@ -480,7 +500,7 @@ export function CashWorkspace({
               All mortgages includes every Expense payment type.
             </p>
           )}
-          {allAccounts && (
+          {combinedAccounts && (
             <p className="muted">
               Accounts are combined by currency for this forecast. Each account
               keeps its own cash ledger.
@@ -520,7 +540,7 @@ export function CashWorkspace({
             date
           </label>
           {result &&
-            (allAccounts
+            (combinedAccounts
               ? [
                   result,
                   ...result.otherCurrencies.map(([c, g]) => ({
@@ -579,7 +599,7 @@ export function CashWorkspace({
                   Overdue mortgage:{" "}
                   {money(result.overdueMortgage, result.currency)}
                 </p>
-                {!allAccounts &&
+                {!combinedAccounts &&
                   result.otherCurrencies.map(([c, g]) => (
                     <p className="notice" key={c}>
                       {c} is separate: expected rent {money(g.rent, c)}, unpaid
@@ -612,6 +632,7 @@ export function CashWorkspace({
                     {r.data.description}{" "}
                     {types.find((t) => t.id === r.data.typeId)?.data.name || ""}
                   </p>
+                  {r.data.attachment && <CashAttachmentLinks attachment={r.data.attachment} label={r.data.description || displayDate(r.data.date)} onView={download => void openAttachment(r.data.attachment,download)} />}
                 </div>
                 <div className="actions">
                   <button

@@ -56,6 +56,7 @@ export const cashAccountSchema = z.object({
   currency: z.string().regex(/^[A-Z]{3}$/),
   openingDate: dateSchema,
   openingBalance: z.number().int().min(-1e12).max(1e12),
+  attachment: attachmentSchema.optional(),
 });
 export const cashCategories = [
   "rent",
@@ -75,6 +76,7 @@ export const cashEntrySchema = z.object({
   category: z.enum(cashCategories),
   typeId: z.string().uuid().optional(),
   description: z.string().max(2000),
+  attachment: attachmentSchema.optional(),
 });
 export type CashAccount = z.infer<typeof cashAccountSchema>;
 export type CashEntry = z.infer<typeof cashEntrySchema>;

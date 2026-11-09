@@ -1412,3 +1412,11 @@ fieldset {
     font-size: 1.65rem;
   }
 }
+
+.cash-account-selection { margin: 0 0 18px; }
+.cash-account-selection .actions { margin-bottom: 16px; }
+.cash-account-selection .check { margin-top: 12px; }
+.cash-account-selection .check input, .cash-attachment .check input { flex-shrink: 0; }
+.cash-account-selection .check span { min-width: 0; overflow-wrap: anywhere; }
+.cash-attachment { min-width: 0; margin: 16px 0; }
+.cash-attachment .receipt-name { margin: 10px 0; }

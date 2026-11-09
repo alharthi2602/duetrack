@@ -53,6 +53,7 @@ beforeAll(async () => {
   await db.exec(
     readFileSync("supabase/migrations/002_cash_and_income.sql", "utf8"),
   );
+  await db.exec(readFileSync("supabase/migrations/003_cash_attachments.sql", "utf8"));
 }, 30000);
 afterAll(async () => await db.close());
 describe.sequential("PostgreSQL migration and authorization", () => {
@@ -359,5 +360,63 @@ describe("Duplicate receipt ownership", () => {
       (await db.query<any>("select data from records where id=$1", [copy]))
         .rows[0].data,
     ).toEqual(data);
+  });
+});
+
+describe.sequential("Private cash attachments", () => {
+  const accountId = crypto.randomUUID(), entryId = crypto.randomUUID();
+  const first = crypto.randomUUID(), second = crypto.randomUUID(), foreign = crypto.randomUUID(), reserved = crypto.randomUUID();
+  const attachment = (id: string) => ({id,name:"statement.pdf",mime:"application/pdf",size:10});
+  const account = {name:"Attached savings",currency:"AED",openingDate:"2026-01-01",openingBalance:100000};
+  const entry = {accountId,currency:"AED",direction:"out",amount:100,date:"2026-11-09",category:"maintenance",description:"Cash proof"};
+  it("requires owned uploads before accepting metadata", async () => {
+    await user(alice);
+    await expect(change(accountId,"cash_account",{...account,attachment:attachment(first)},0)).rejects.toThrow("Upload attachment before saving");
+    await user(bob);
+    await db.query("insert into storage.objects(bucket_id,name) values('receipts',$1)",[bob+"/"+foreign]);
+    await user(alice);
+    await expect(change(accountId,"cash_account",{...account,attachment:attachment(foreign)},0)).rejects.toThrow("Upload attachment before saving");
+    for (const id of [first,second,reserved]) await db.query("insert into storage.objects(bucket_id,name) values('receipts',$1)",[alice+"/"+id]);
+  });
+  it("advertises support and saves private account and entry attachments", async () => {
+    await user(alice);
+    expect((await db.query<any>("select duetrack_capabilities() as c")).rows[0].c.cashAttachments).toBe(true);
+    expect((await change(accountId,"cash_account",{...account,attachment:attachment(first)},0)).row.data.attachment.id).toBe(first);
+    expect((await change(entryId,"cash_entry",{...entry,attachment:attachment(second)},0)).row.data.attachment.id).toBe(second);
+    await user(bob);
+    await expect(change(accountId,"cash_account",account,1)).rejects.toThrow("Not authorized");
+    expect((await db.query("select * from records where id=$1",[entryId])).rows).toHaveLength(0);
+  });
+  it("rejects invalid MIME, size and attachment field types without changing the record", async () => {
+    await user(alice);
+    for (const invalid of [{mime:"text/html"},{size:10485761},{size:1.5},{size:0},{name:123}]) await expect(change(accountId,"cash_account",{...account,attachment:{...attachment(first),...invalid}},1)).rejects.toThrow("Invalid cash attachment");
+    expect((await db.query<any>("select version from records where id=$1",[accountId])).rows[0].version).toBe(1);
+  });
+  it("preserves the previous proof on failure and queues old proof on replacement", async () => {
+    await user(alice);
+    await expect(change(accountId,"cash_account",{...account,attachment:attachment(crypto.randomUUID())},1)).rejects.toThrow("Upload attachment");
+    expect((await db.query<any>("select data from records where id=$1",[accountId])).rows[0].data.attachment.id).toBe(first);
+    await change(accountId,"cash_account",{...account,attachment:attachment(second)},1);
+    await db.exec("reset role");
+    expect((await db.query("select * from receipt_gc where path=$1",[alice+"/"+first])).rows).toHaveLength(1);
+    expect((await db.query<any>("select claim_receipt_cleanup($1,$2) as claimed",[alice,alice+"/"+second])).rows[0].claimed).toBe(false);
+  });
+  it("removes cash proof with a version check and preserves shared attachments during cleanup", async () => {
+    await user(alice);
+    await change(accountId,"cash_account",account,2);
+    const stale=await change(accountId,"cash_account",{...account,attachment:attachment(first)},2);
+    expect(stale.conflict).toBe(true);
+    await db.exec("reset role");
+    expect((await db.query<any>("select claim_receipt_cleanup($1,$2) as claimed",[alice,alice+"/"+second])).rows[0].claimed).toBe(false);
+    await user(alice);
+    await change(entryId,"cash_entry",entry,1,true);
+    await db.exec("reset role");
+    expect((await db.query<any>("select claim_receipt_cleanup($1,$2) as claimed",[alice,alice+"/"+second])).rows[0].claimed).toBe(true);
+  });
+  it("blocks a reserved object from being attached during cleanup", async () => {
+    await db.exec("reset role");
+    await db.query("select claim_receipt_cleanup($1,$2)",[alice,alice+"/"+reserved]);
+    await user(alice);
+    await expect(change(crypto.randomUUID(),"cash_account",{...account,attachment:attachment(reserved)},0)).rejects.toThrow("cleanup in progress");
   });
 });
